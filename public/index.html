@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bookz</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,500&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- Start page -->
+<div id="start" class="start">
+  <main class="start-main">
+    <div class="brand-block">
+      <h1 class="brand-title">Bookz</h1>
+      <p class="tagline">Read closely. Get hints, not answers.</p>
+    </div>
+
+    <section aria-labelledby="up-title" class="block">
+      <h2 id="up-title">Upload your text</h2>
+      <label for="file" id="drop" class="drop">
+        <svg aria-hidden="true" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
+        <span class="drop-main">Choose a file or drop it here</span>
+        <span class="drop-sub">EPUB, PDF or plain text</span>
+        <input id="file" type="file" accept=".epub,.pdf,.txt,.md,text/plain,application/epub+zip,application/pdf">
+      </label>
+      <p id="upload-status" class="status" role="status"></p>
+      <p class="fine">Only upload texts you have the right to use. Your text stays in this browser and is sent to the companion only when you ask it something.</p>
+    </section>
+
+    <section aria-labelledby="sample-title" class="block">
+      <h2 id="sample-title">Or start with a sample</h2>
+      <div class="card">
+        <div class="card-row">
+          <div>
+            <div class="card-title">Meditations</div>
+            <div class="card-sub">Marcus Aurelius. Translated by Meric Casaubon, 1634.</div>
+          </div>
+          <button type="button" id="open-sample" class="btn btn-outline">Read sample</button>
+        </div>
+        <div class="oa">
+          <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/></svg>
+          <p><strong>Open access.</strong> Copyright expired. Public domain in the United States. Source: Project Gutenberg, eBook 2680.</p>
+        </div>
+      </div>
+    </section>
+
+    <section aria-labelledby="recent-title" class="block" id="recent" hidden>
+      <h2 id="recent-title">Your texts</h2>
+      <ul id="recent-list" class="recent-list"></ul>
+    </section>
+  </main>
+
+  <aside class="start-side">
+    <h2>How it works</h2>
+    <ol>
+      <li><span class="step">1</span><div><strong>Upload</strong><span>Bring your own text, or use the sample.</span></div></li>
+      <li><span class="step">2</span><div><strong>Read and highlight</strong><span>Mark passages, add notes, ask the companion. It gives hints, never answers.</span></div></li>
+      <li><span class="step">3</span><div><strong>Export to PDF</strong><span>Take the text, your highlights, or both.</span></div></li>
+    </ol>
+  </aside>
+</div>
+
+<!-- Reader -->
+<div id="reader" class="reader" hidden>
+  <header class="bar">
+    <div class="bar-left">
+      <button type="button" id="home" class="brand-link">Bookz</button>
+      <div class="bar-title">
+        <span id="doc-title"></span>
+        <span id="doc-author"></span>
+      </div>
+    </div>
+    <div class="bar-right">
+      <span id="oa-tag" class="tag" hidden>Open access · public domain</span>
+      <button type="button" id="prev" class="btn btn-plain" aria-label="Previous chapter">‹</button>
+      <label class="sr-only" for="chapter">Contents</label>
+      <select id="chapter" class="select"></select>
+      <button type="button" id="next" class="btn btn-plain" aria-label="Next chapter">›</button>
+      <button type="button" id="export" class="btn btn-solid">Export PDF</button>
+    </div>
+  </header>
+
+  <div class="panes">
+    <main id="text-pane" class="text-pane">
+      <article id="text" class="text"></article>
+    </main>
+
+    <aside class="side" aria-label="Companion and notes">
+      <div class="tabs" role="tablist">
+        <button type="button" role="tab" id="tab-chat" aria-selected="true" aria-controls="panel-chat">Companion</button>
+        <button type="button" role="tab" id="tab-notes" aria-selected="false" aria-controls="panel-notes">Notes · <span id="note-count">0</span></button>
+      </div>
+
+      <section id="panel-chat" class="panel" role="tabpanel" aria-labelledby="tab-chat">
+        <p class="rule">Hints and questions only. No answers. <span id="demo-tag" hidden>Demo replies until the API key is connected.</span></p>
+        <div class="threads-head">
+          <span>Topics</span>
+          <button type="button" id="new-thread" class="btn btn-small">New topic</button>
+        </div>
+        <div id="threads" class="threads"></div>
+        <form id="ask-form" class="composer">
+          <div id="quote-chip" class="quote-chip" hidden>
+            <span id="quote-text"></span>
+            <button type="button" id="quote-clear" aria-label="Remove selection">×</button>
+          </div>
+          <div class="composer-row">
+            <label class="sr-only" for="ask">Ask about the text, a theme or your notes</label>
+            <input id="ask" type="text" autocomplete="off" placeholder="Ask about the text, a theme or your notes">
+            <button type="submit" class="btn btn-solid btn-send" aria-label="Send">↑</button>
+          </div>
+        </form>
+      </section>
+
+      <section id="panel-notes" class="panel" role="tabpanel" aria-labelledby="tab-notes" hidden>
+        <div id="notes" class="notes"></div>
+        <form id="note-form" class="composer">
+          <div class="composer-row">
+            <label class="sr-only" for="note">Write a note on this chapter</label>
+            <input id="note" type="text" autocomplete="off" placeholder="Write a note on this chapter">
+            <button type="submit" class="btn btn-solid">Add</button>
+          </div>
+        </form>
+      </section>
+    </aside>
+  </div>
+</div>
+
+<!-- Selection toolbar -->
+<div id="sel-bar" class="sel-bar" hidden>
+  <button type="button" data-act="highlight" class="sel-primary">Highlight</button>
+  <button type="button" data-act="note">Add note</button>
+  <button type="button" data-act="ask">Ask</button>
+  <button type="button" data-act="remove" hidden>Remove</button>
+</div>
+
+<!-- Export dialog -->
+<dialog id="export-dialog" class="dialog">
+  <form method="dialog" id="export-form">
+    <h2>Export to PDF</h2>
+    <label class="check"><input type="checkbox" id="exp-text" checked> Full text</label>
+    <label class="check"><input type="checkbox" id="exp-marks" checked> Highlights and notes</label>
+    <p class="fine">Your browser's print window opens next. Choose “Save as PDF” as the destination.</p>
+    <p id="export-error" class="status" role="alert"></p>
+    <div class="dialog-actions">
+      <button type="button" id="export-cancel" class="btn btn-outline">Cancel</button>
+      <button type="submit" class="btn btn-solid">Export</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="print-root"></div>
+
+<script src="/vendor/jszip/jszip.min.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
