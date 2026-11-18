@@ -96,41 +96,92 @@ async function parseDocx(file) {
   const xml = await zip.file('word/document.xml')?.async('string');
   if (!xml) throw new Error('That Word document could not be read.');
   const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
-  const body = new DOMParser().parseFromString(xml, 'application/xml');
-  const chapters = [];
+  const body = new DOMParser().parseFromString(xml, 'application/xml').getElementsByTagNameNS(W, 'body')[0];
+  if (!body) throw new Error('That Word document could not be read.');
+
+  // Text runs, with tabs and line breaks kept as spaces. Deleted (tracked-change) text is not in w:t.
+  const textOf = (node) => {
+    let text = '';
+    for (const n of node.getElementsByTagNameNS(W, '*')) {
+      if (n.localName === 't') text += n.textContent;
+      else if (n.localName === 'tab' || n.localName === 'br' || n.localName === 'p') text += ' '; // 'p': a cell can hold several paragraphs
+    }
+    return clean(text);
+  };
+  const within = (node, name, owner) => {
+    // True when the nearest ancestor called `name` is `owner` (so nested tables stay inside their cell).
+    for (let up = node.parentNode; up; up = up.parentNode) if (up.localName === name) return up === owner;
+    return false;
+  };
+
+  // A table is kept as one entry: rows on separate lines, cells separated by " | ".
+  const tableOf = (tbl) => {
+    const rows = [];
+    for (const tr of tbl.getElementsByTagNameNS(W, 'tr')) {
+      if (!within(tr, 'tbl', tbl)) continue;
+      const cells = [];
+      for (const tc of tr.getElementsByTagNameNS(W, 'tc')) {
+        if (within(tc, 'tr', tr)) cells.push(textOf(tc).replace(/\s*\|\s*/g, ' / '));
+      }
+      if (cells.some(Boolean)) rows.push(cells.join(' | '));
+    }
+    const look = tbl.getElementsByTagNameNS(W, 'tblLook')[0];
+    const head =
+      tbl.getElementsByTagNameNS(W, 'tblHeader').length > 0 ||
+      look?.getAttributeNS(W, 'firstRow') === '1' ||
+      (parseInt(look?.getAttributeNS(W, 'val') || '0', 16) & 0x20) !== 0;
+    return rows.length ? { text: rows.join('\n'), table: true, head: head && rows.length > 1 } : null;
+  };
+
+  const sections = []; // { title, items: [{ text, table, head }] }
   let current = null;
   let docTitle = '';
-  for (const para of body.getElementsByTagNameNS(W, 'p')) {
-    // Text runs, with tabs and line breaks kept as spaces. Deleted (tracked-change) text is not in w:t.
-    let text = '';
-    for (const node of para.getElementsByTagNameNS(W, '*')) {
-      if (node.localName === 't') text += node.textContent;
-      else if (node.localName === 'tab' || node.localName === 'br') text += ' ';
+  const add = (item) => {
+    if (!current) {
+      current = { title: 'Opening', items: [] };
+      sections.push(current);
     }
-    text = clean(text);
-    if (!text) continue;
-    const style = para.getElementsByTagNameNS(W, 'pStyle')[0]?.getAttributeNS(W, 'val') || '';
-    if (/^title$/i.test(style) && !docTitle) {
-      docTitle = text;
-    } else if (/^heading ?[1-3]$/i.test(style)) {
-      current = { title: text, paragraphs: [] };
-      chapters.push(current);
-    } else {
-      if (!current) {
-        current = { title: 'Opening', paragraphs: [] };
-        chapters.push(current);
+    current.items.push(item);
+  };
+  const walk = (parent) => {
+    for (const node of parent.children) {
+      if (node.localName === 'tbl') {
+        const table = tableOf(node);
+        if (table) add(table);
+      } else if (node.localName === 'p') {
+        const text = textOf(node);
+        if (!text) continue;
+        const style = node.getElementsByTagNameNS(W, 'pStyle')[0]?.getAttributeNS(W, 'val') || '';
+        if (/^title$/i.test(style) && !docTitle) docTitle = text;
+        else if (/^heading ?[1-3]$/i.test(style)) {
+          current = { title: text, items: [] };
+          sections.push(current);
+        } else add({ text });
+      } else {
+        walk(node); // content controls and other wrappers
       }
-      current.paragraphs.push(text);
     }
-  }
+  };
+  walk(body);
+
   // No headings: split into parts so the contents list is still usable.
-  if (chapters.length === 1 && chapters[0].paragraphs.length > 60) {
-    const all = chapters[0].paragraphs;
-    chapters.length = 0;
-    for (let i = 0; i < all.length; i += 40) chapters.push({ title: `Part ${i / 40 + 1}`, paragraphs: all.slice(i, i + 40) });
-  } else if (chapters.length === 1 && chapters[0].title === 'Opening') {
-    chapters[0].title = docTitle || file.name.replace(/\.[^.]+$/, '');
+  if (sections.length === 1 && sections[0].items.length > 60) {
+    const all = sections[0].items;
+    sections.length = 0;
+    for (let i = 0; i < all.length; i += 40) sections.push({ title: `Part ${i / 40 + 1}`, items: all.slice(i, i + 40) });
+  } else if (sections.length === 1 && sections[0].title === 'Opening') {
+    sections[0].title = docTitle || file.name.replace(/\.[^.]+$/, '');
   }
+  const chapters = sections.map((sec) => {
+    const chapter = { title: sec.title, paragraphs: sec.items.map((it) => it.text) };
+    const tables = sec.items.flatMap((it, i) => (it.table ? [i] : []));
+    if (tables.length) {
+      chapter.tables = tables;
+      chapter.tableHeads = sec.items.flatMap((it, i) => (it.head ? [i] : []));
+    }
+    return chapter;
+  });
+
   let author = '';
   const core = await zip.file('docProps/core.xml')?.async('string');
   if (core) {

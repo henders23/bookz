@@ -189,6 +189,21 @@ function fillPara(node, text, list) {
   if (at < text.length) node.append(text.slice(at));
 }
 
+// A table (from a Word upload) is stored as one paragraph: rows on lines, cells split by " | ".
+function tableNode(ci, pi) {
+  const ch = doc.chapters[ci];
+  if (!ch.tables?.includes(pi)) return null;
+  const headed = ch.tableHeads?.includes(pi);
+  const rows = ch.paragraphs[pi].split('\n').map((r) => r.split(' | '));
+  const width = Math.max(...rows.map((r) => r.length));
+  const row = (cells, tag) =>
+    el('tr', {}, ...cells.map((c, i) => el(tag, { text: c, colspan: i === cells.length - 1 && cells.length < width ? width - i : null })));
+  return el('table', {},
+    headed ? el('thead', {}, row(rows[0], 'th')) : null,
+    el('tbody', {}, ...rows.slice(headed ? 1 : 0).map((r) => row(r, 'td'))),
+  );
+}
+
 function renderChapter(flashP) {
   const ch = doc.chapters[pos.ch];
   if (!visited.includes(pos.ch)) visited.push(pos.ch);
@@ -198,8 +213,9 @@ function renderChapter(flashP) {
     el('div', { class: 'eyebrow', text: `${pos.ch + 1} of ${doc.chapters.length}` }),
     el('h1', { text: ch.title }),
     ...ch.paragraphs.map((p, i) => {
-      const body = el('p', { class: 'ptext' });
-      fillPara(body, p, marks.filter((m) => m.ch === pos.ch && m.p === i));
+      const table = tableNode(pos.ch, i);
+      const body = table ? el('div', { class: 'table-wrap' }, table) : el('p', { class: 'ptext' });
+      if (!table) fillPara(body, p, marks.filter((m) => m.ch === pos.ch && m.p === i));
       return el('div', { class: 'para', 'data-p': i }, el('span', { class: 'pnum', 'aria-hidden': 'true', text: i + 1 }), body);
     }),
     el('nav', { class: 'chapter-nav', 'aria-label': 'Chapters' },
@@ -330,7 +346,8 @@ function afterMarksChange() {
   const scroll = $('text-pane').scrollTop;
   for (const para of $('text').querySelectorAll('.para')) {
     const p = Number(para.dataset.p);
-    fillPara(para.querySelector('.ptext'), doc.chapters[pos.ch].paragraphs[p], marks.filter((m) => m.ch === pos.ch && m.p === p));
+    const body = para.querySelector('.ptext');
+    if (body) fillPara(body, doc.chapters[pos.ch].paragraphs[p], marks.filter((m) => m.ch === pos.ch && m.p === p));
   }
   $('text-pane').scrollTop = scroll;
   renderNotes();
@@ -731,7 +748,7 @@ function renderQuestions() {
         el('p', { class: 'q-text' }, ...renderReply(q.question)),
         el('div', { class: 'q-where' },
           el('strong', { text: `About ${placeLabel(q.ch, q.p)}` }),
-          el('span', { text: `“${clip(para, 110)}”` }),
+          el('span', { text: `“${clip(para.replace(/\s+/g, ' '), 110)}”` }),
         ),
         el('div', { class: 'q-buttons' },
           el('button', { type: 'button', class: 'btn btn-small go', text: 'Go to passage', onclick: () => goTo(q.ch, q.p) }),
@@ -770,8 +787,9 @@ function buildPrint(withText, withMarks) {
     doc.chapters.forEach((c, ci) => {
       out.push(el('h2', { text: c.title }));
       c.paragraphs.forEach((p, pi) => {
-        const node = el('p');
-        fillPara(node, p, withMarks ? marks.filter((m) => m.ch === ci && m.p === pi) : []);
+        const table = tableNode(ci, pi);
+        const node = table || el('p');
+        if (!table) fillPara(node, p, withMarks ? marks.filter((m) => m.ch === ci && m.p === pi) : []);
         out.push(node);
       });
     });
