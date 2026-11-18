@@ -40,9 +40,10 @@ Its instructions are in [`lib/prompt.js`](lib/prompt.js), in plain English. Edit
 In the Questions tab the companion asks and the student answers. The instructions are `QUESTION_INSTRUCTIONS` in the same file.
 
 - The text is classified once as literature, academic or general, which decides the kinds of question on offer. The student can change it.
-- The student chooses the kind of question, the difficulty (Notice, Interpret, Connect), where to draw from (this chapter, or everything they have opened), and can type a topic.
+- One button asks three questions on the open chapter. Follow-up buttons under them (Harder, More on a kind, More like this, Something else) steer the next three.
+- Under Options the student can set the kind of question, the difficulty (Notice, Interpret, Connect), where to draw from (this chapter, or everything they have opened), and a topic.
 - Each question names one paragraph the student has already read, shows the start of it, and has a button that goes straight there.
-- "Answer" and "Hint" open the question as a topic in the Companion, where the hints-only rules apply.
+- The student answers on the question card and the companion replies under it, by the same hints-only rules. Answered questions are included in the PDF export.
 
 With each question the server sends the text, the open chapter, the student's highlights and notes, and the conversation in the current topic. The text is cached between questions. Texts over about 600,000 characters are sent in part (contents list plus the chapters the student is working in).
 

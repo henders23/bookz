@@ -116,8 +116,19 @@ mark.has-note { box-shadow: inset 0 -2px 0 var(--accent); }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip { min-height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); font-size: 13px; font-weight: 600; cursor: pointer; }
 .chip[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--ground); }
-.q-actions { display: flex; gap: 8px; }
-.q-actions .btn-solid { flex: 1; }
+.q-toggle { align-self: flex-start; min-height: 32px; font-size: 14px; }
+.q-options { display: flex; flex-direction: column; gap: 12px; padding-top: 4px; }
+.q-follow { display: flex; flex-direction: column; gap: 8px; padding: 4px 0 8px; }
+.q-menu { position: relative; margin-left: auto; }
+.q-menu summary { list-style: none; min-height: 36px; min-width: 40px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); font-size: 18px; font-weight: 600; cursor: pointer; }
+.q-menu summary::-webkit-details-marker { display: none; }
+.q-menu-items { position: absolute; right: 0; top: calc(100% + 4px); z-index: 5; min-width: 150px; padding: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 4px 16px rgba(22, 33, 29, 0.15); display: flex; flex-direction: column; }
+.q-menu-items button { min-height: 40px; padding: 0 12px; border: 0; border-radius: 6px; background: none; text-align: left; font-size: 14px; font-weight: 500; cursor: pointer; }
+.q-menu-items button:hover { background: var(--accent-tint); }
+.q-answer { display: flex; flex-direction: column; gap: 12px; padding-top: 10px; border-top: 1px solid var(--line-soft); }
+.q-answer input { flex: 1; min-width: 0; min-height: 44px; padding: 0 12px; border: 1px solid #8D978F; border-radius: 10px; background: var(--surface); font-size: 15px; }
+.q-answer .btn-send { width: 44px; }
+.chip:disabled { opacity: 0.5; cursor: default; }
 .q-list { flex: none; padding: 16px 20px 24px; display: flex; flex-direction: column; gap: 12px; }
 .q-card { border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
 .q-tag { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }

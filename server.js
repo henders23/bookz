@@ -144,7 +144,7 @@ const DEMO_QUESTIONS = {
 };
 
 app.post('/api/questions', async (req, res) => {
-  const { doc, kind, lens, level, chapters, paragraph, focus, avoid } = req.body || {};
+  const { doc, kind, lens, level, chapters, paragraph, focus, avoid, exclude } = req.body || {};
   if (!validDoc(doc)) return res.status(400).json({ error: 'No text was sent.' });
   const hasPara = (c, p) => Number.isInteger(c) && Number.isInteger(p) && Boolean(doc.chapters[c]?.paragraphs[p]);
   const para = paragraph && hasPara(paragraph.ch, paragraph.p) ? { ch: paragraph.ch, p: paragraph.p } : null;
@@ -159,7 +159,8 @@ app.post('/api/questions', async (req, res) => {
       const ch = para ? para.ch : read[read.length - 1];
       const count = doc.chapters[ch].paragraphs.length;
       const p = para ? para.p : Math.floor(((i + 1) * count) / 4 + (avoid?.length || 0)) % count;
-      return { question, ch, p, lens: lenses.includes(lens) ? lens : lenses[i % lenses.length] };
+      const pool2 = lenses.filter((l) => !(Array.isArray(exclude) ? exclude : []).includes(l));
+      return { question, ch, p, lens: lenses.includes(lens) ? lens : (pool2.length ? pool2 : lenses)[i % (pool2.length || lenses.length)] };
     });
     return res.json({ questions, demo: true });
   }
@@ -173,7 +174,7 @@ app.post('/api/questions', async (req, res) => {
         { type: 'text', text: buildTextBlock(doc, para ? [para.ch] : [...read].reverse()), cache_control: { type: 'ephemeral' } },
         { type: 'text', text: QUESTION_INSTRUCTIONS },
       ],
-      messages: [{ role: 'user', content: buildQuestionRequest({ doc, kind, lens, level, chapters: read, paragraph: para, focus, avoid }) }],
+      messages: [{ role: 'user', content: buildQuestionRequest({ doc, kind, lens, level, chapters: read, paragraph: para, focus, avoid, exclude: Array.isArray(exclude) ? exclude : [] }) }],
     });
     // The model writes 1-based numbers, as shown in the text. Drop anything outside what the student has read.
     const questions = (response.parsed_output?.questions || [])
