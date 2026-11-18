@@ -704,6 +704,7 @@ async function askQuestions(opts = {}) {
         level,
         exclude: opts.exclude,
         chapters: qPrefs.scope === 'read' ? visited : [pos.ch],
+        position: pos,
         paragraph: opts.paragraph,
         focus: $('q-focus').value.trim(),
         avoid: questions.slice(0, 20).map((q) => q.question),
@@ -738,7 +739,7 @@ async function answerQuestion(q, text) {
   answering.add(q.id);
   renderQuestions(q.id);
   saveState();
-  const note = `[The student is answering this question you set: "${q.question} (ch ${q.ch + 1}, ¶${q.p + 1})"]\n`;
+  const note = `[The student is answering this prompt you set about (ch ${q.ch + 1}, ¶${q.p + 1}): "${fullQuestion(q)}"]\n`;
   try {
     const res = await fetch('/api/chat', {
       method: 'POST',
@@ -762,6 +763,9 @@ async function answerQuestion(q, text) {
   saveState();
 }
 
+// Where to look, what to notice, then the question. Older saved questions only have the last part.
+const fullQuestion = (q) => [q.where, q.notice, q.question].filter(Boolean).join(' ');
+
 function questionCard(q) {
   const para = doc.chapters[q.ch]?.paragraphs[q.p] || '';
   const count = (q.messages || []).length;
@@ -773,7 +777,7 @@ function questionCard(q) {
     el('div', { class: 'q-menu-items' },
       el('button', { type: 'button', text: 'Hint', onclick: () => answerQuestion(q, 'Can I have a hint?') }),
       el('button', { type: 'button', text: 'Save to notes', onclick: () => {
-        marks.push({ id: uid(), ch: q.ch, p: q.p, text: '', note: `Question: ${q.question}` });
+        marks.push({ id: uid(), ch: q.ch, p: q.p, text: '', note: `Question: ${fullQuestion(q)}` });
         menu.open = false;
         $('q-status').className = 'status';
         $('q-status').textContent = 'Saved to notes.';
@@ -785,11 +789,13 @@ function questionCard(q) {
   );
   return el('div', { class: 'q-card', 'data-id': q.id },
     el('span', { class: 'q-tag', text: `${lensLabel(q.lens)} · ${LEVEL_LABELS[q.level] || 'Notice'}${q.demo ? ' · demo' : ''}` }),
-    el('p', { class: 'q-text' }, ...renderReply(q.question)),
+    el('p', { class: 'q-lead' }, ...renderReply(q.where || `Look at ${placeLabel(q.ch, q.p)}.`)),
     el('div', { class: 'q-where' },
-      el('strong', { text: `About ${placeLabel(q.ch, q.p)}` }),
-      el('span', { text: `“${clip(para.replace(/\s+/g, ' '), 110)}”` }),
+      el('strong', { text: placeLabel(q.ch, q.p) }),
+      el('span', { text: `“${clip(para.replace(/\s+/g, ' '), 90)}”` }),
     ),
+    q.notice ? el('p', { class: 'q-notice' }, ...renderReply(q.notice)) : null,
+    el('p', { class: 'q-text' }, ...renderReply(q.question)),
     el('div', { class: 'q-buttons' },
       el('button', { type: 'button', class: 'btn btn-small go', text: 'Go to passage', onclick: () => goTo(q.ch, q.p) }),
       el('button', {
@@ -900,7 +906,7 @@ function buildPrint(withText, withMarks) {
         qa.append(
           el('div', { class: 'p-item' },
             el('div', { class: 'p-where', text: `${doc.chapters[q.ch]?.title || ''} · paragraph ${q.p + 1}` }),
-            el('p', {}, el('strong', { text: q.question })),
+            el('p', {}, [q.where, q.notice].filter(Boolean).join(' '), ' ', el('strong', { text: q.question })),
             ...q.messages.filter((m) => !m.error).map((m) => el('div', { class: 'p-note', text: `${m.role === 'user' ? 'Me' : 'Companion'}: ${m.text}` })),
           ),
         );

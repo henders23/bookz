@@ -31,7 +31,7 @@ The key stays on the server. The browser only talks to `/api/chat`.
 Its instructions are in [`lib/prompt.js`](lib/prompt.js), in plain English. Edit `COMPANION_INSTRUCTIONS` to change its behaviour. In short:
 
 - One hint per reply: a question, a pointer to a place in the text, or a suggestion of what to notice. Never the answer.
-- One or two short sentences, 35 words at most.
+- Conversational: two or three sentences, 60 words at most. It may point out something interesting in a passage, but not what it means.
 - Themes and connections are welcome. There it may suggest where to look and need not end with a question.
 - References are written as `(ch 3, ¶12)` and the app turns them into links that jump to the passage.
 
@@ -42,7 +42,7 @@ In the Questions tab the companion asks and the student answers. The instruction
 - The text is classified once as literature, academic or general, which decides the kinds of question on offer. The student can change it.
 - One button asks three questions on the open chapter. Follow-up buttons under them (Harder, More on a kind, More like this, Something else) steer the next three.
 - Under Options the student can set the kind of question, the difficulty (Notice, Interpret, Connect), where to draw from (this chapter, or everything they have opened), and a topic.
-- Each question names one paragraph the student has already read, shows the start of it, and has a button that goes straight there.
+- Each question has three parts: where to look ("Read the first paragraph again"), something interesting to notice there, then the question. It is always about a paragraph the student has already read, and has a button that goes straight there.
 - The student answers on the question card and the companion replies under it, by the same hints-only rules. Answered questions are included in the PDF export.
 
 With each question the server sends the text, the open chapter, the student's highlights and notes, and the conversation in the current topic. The text is cached between questions. Texts over about 600,000 characters are sent in part (contents list plus the chapters the student is working in).

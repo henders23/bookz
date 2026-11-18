@@ -38,10 +38,10 @@ function validDoc(doc) {
 }
 
 const DEMO_HINTS = [
-  (ch) => `Read (ch ${ch}, ¶1) again slowly. Which single word carries the most weight?`,
-  (ch) => `Put your last highlight beside (ch ${ch}, ¶2) and look at what repeats.`,
-  () => 'Who is being spoken to here? Check whether that changes later in the chapter.',
-  (ch) => `Look for where this idea first appears in (ch ${ch}). Mark it.`,
+  (ch) => `Read the first paragraph again, slowly: (ch ${ch}, ¶1). One word in it carries more weight than the rest. Which would you pick?`,
+  (ch) => `Try putting your last highlight next to the second paragraph, (ch ${ch}, ¶2). Something repeats between them, and it is worth seeing what changes the second time.`,
+  () => 'Keep an eye on who is being spoken to here. It is easy to miss, and it does not stay the same all the way through the chapter.',
+  (ch) => `That idea shows up earlier than you might think. Look back through (ch ${ch}) for the first place it appears, and mark it.`,
 ];
 
 app.post('/api/chat', async (req, res) => {
@@ -134,17 +134,37 @@ app.post('/api/classify', async (req, res) => {
 // ---------- questions mode ----------
 
 const QuestionSet = z.object({
-  questions: z.array(z.object({ question: z.string(), ch: z.number().int(), p: z.number().int(), lens: z.string() })),
+  questions: z.array(z.object({ where: z.string(), notice: z.string(), question: z.string(), ch: z.number().int(), p: z.number().int(), lens: z.string() })),
 });
 
+// Placeholders shown until the API key is connected. They cannot see the text, so they stay general.
 const DEMO_QUESTIONS = {
-  notice: ['What is repeated in this paragraph?', 'Who is being addressed here, and how can you tell?', 'What things are listed or contrasted here?'],
-  interpret: ['Why might this paragraph open the way it does?', 'What is the last sentence here doing?', 'Which word here matters most, and why that word?'],
-  connect: ['What does this paragraph share with the one before it?', 'Where else have you read something that sits beside this?', 'How does this change what came earlier in the chapter?'],
+  notice: [
+    ['Some words here come back more than once, and they are not the ones you might expect.', 'Which word would you underline, and what keeps bringing the writer back to it?'],
+    ['It is not obvious who these lines are meant for. The way they are worded gives a few clues.', 'Who do you think is being spoken to here, and what makes you say so?'],
+    ['Two things are set side by side in this paragraph, and they are not given equal weight.', 'What is being compared, and which side does the wording favour?'],
+  ],
+  interpret: [
+    ['The paragraph could have started in a gentler way. It does not.', 'What do you make of the way it opens?'],
+    ['The last sentence does something the earlier ones do not.', 'How would you describe the turn it takes at the end?'],
+    ['One word here is doing more work than the rest.', 'Which word is it for you, and why might that word have been chosen over a plainer one?'],
+  ],
+  connect: [
+    ['This paragraph picks up something from the one before it, though not in the same words.', 'What carries over, and what has shifted?'],
+    ['You have met an idea like this earlier in your reading.', 'Where was it, and how does this version sit beside that one?'],
+    ['Read on its own this passage says one thing. After what came before, it may say another.', 'How does it change what you read earlier in the chapter?'],
+  ],
+};
+const ORDINALS = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'];
+const demoWhere = (doc, ch, p, open) => {
+  const count = doc.chapters[ch].paragraphs.length;
+  const which = p === count - 1 && count > 1 ? 'the last paragraph' : p < ORDINALS.length ? `the ${ORDINALS[p]} paragraph` : `paragraph ${p + 1}`;
+  return `Read ${which}${ch === open ? '' : ` of ${doc.chapters[ch].title}`} again.`;
 };
 
 app.post('/api/questions', async (req, res) => {
-  const { doc, kind, lens, level, chapters, paragraph, focus, avoid, exclude } = req.body || {};
+  const { doc, kind, lens, level, chapters, paragraph, focus, avoid, exclude, position } = req.body || {};
+  const open = Number.isInteger(position?.ch) ? position.ch : -1;
   if (!validDoc(doc)) return res.status(400).json({ error: 'No text was sent.' });
   const hasPara = (c, p) => Number.isInteger(c) && Number.isInteger(p) && Boolean(doc.chapters[c]?.paragraphs[p]);
   const para = paragraph && hasPara(paragraph.ch, paragraph.p) ? { ch: paragraph.ch, p: paragraph.p } : null;
@@ -155,12 +175,12 @@ app.post('/api/questions', async (req, res) => {
 
   if (!live) {
     const pool = DEMO_QUESTIONS[level] || DEMO_QUESTIONS.notice;
-    const questions = pool.map((question, i) => {
+    const questions = pool.map(([notice, question], i) => {
       const ch = para ? para.ch : read[read.length - 1];
       const count = doc.chapters[ch].paragraphs.length;
       const p = para ? para.p : Math.floor(((i + 1) * count) / 4 + (avoid?.length || 0)) % count;
       const pool2 = lenses.filter((l) => !(Array.isArray(exclude) ? exclude : []).includes(l));
-      return { question, ch, p, lens: lenses.includes(lens) ? lens : (pool2.length ? pool2 : lenses)[i % (pool2.length || lenses.length)] };
+      return { where: demoWhere(doc, ch, p, open), notice, question, ch, p, lens: lenses.includes(lens) ? lens : (pool2.length ? pool2 : lenses)[i % (pool2.length || lenses.length)] };
     });
     return res.json({ questions, demo: true });
   }
@@ -174,11 +194,11 @@ app.post('/api/questions', async (req, res) => {
         { type: 'text', text: buildTextBlock(doc, para ? [para.ch] : [...read].reverse()), cache_control: { type: 'ephemeral' } },
         { type: 'text', text: QUESTION_INSTRUCTIONS },
       ],
-      messages: [{ role: 'user', content: buildQuestionRequest({ doc, kind, lens, level, chapters: read, paragraph: para, focus, avoid, exclude: Array.isArray(exclude) ? exclude : [] }) }],
+      messages: [{ role: 'user', content: buildQuestionRequest({ doc, kind, lens, level, chapters: read, paragraph: para, focus, avoid, exclude: Array.isArray(exclude) ? exclude : [], open }) }],
     });
     // The model writes 1-based numbers, as shown in the text. Drop anything outside what the student has read.
     const questions = (response.parsed_output?.questions || [])
-      .map((q) => ({ question: q.question.trim(), ch: q.ch - 1, p: q.p - 1, lens: lenses.includes(q.lens) ? q.lens : 'themes' }))
+      .map((q) => ({ where: q.where.trim(), notice: q.notice.trim(), question: q.question.trim(), ch: q.ch - 1, p: q.p - 1, lens: lenses.includes(q.lens) ? q.lens : 'themes' }))
       .filter((q) => q.question && allowed(q.ch, q.p))
       .slice(0, 3);
     if (!questions.length) return res.status(502).json({ error: 'No questions came back. Try again.' });
