@@ -53,7 +53,7 @@ With each question the server sends the text, the open chapter, the student's hi
 | `server.js` | Serves the app and calls the Anthropic API |
 | `lib/prompt.js` | The companion's instructions and the context it is given |
 | `public/app.js` | Reader, highlights, notes, topics, export |
-| `public/parse.js` | Reads uploaded EPUB, PDF and plain text files |
+| `public/parse.js` | Reads uploaded EPUB, PDF, Word (.docx) and plain text files |
 | `public/sample/meditations.json` | The sample text |
 
 ## Things to know
@@ -61,4 +61,5 @@ With each question the server sends the text, the open chapter, the student's hi
 - Uploaded texts, highlights, notes and conversations are stored in the student's browser only. There are no accounts and no server-side storage.
 - Export uses the browser's print window; the student chooses "Save as PDF".
 - PDF uploads are read one page per chapter, so the companion can point to a page. Scanned PDFs without a text layer cannot be read.
+- Word uploads must be `.docx`; headings (Heading 1 to 3) become chapters. Older `.doc` files are not supported.
 - The sample text is Meditations by Marcus Aurelius in Meric Casaubon's 1634 translation, taken from Project Gutenberg eBook 2680. It is in the public domain in the United States.

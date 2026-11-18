@@ -89,6 +89,58 @@ async function parseEpub(file) {
   return finish(file, { title: meta('title'), author: meta('creator'), chapters });
 }
 
+// ---------- Word (.docx) ----------
+
+async function parseDocx(file) {
+  const zip = await window.JSZip.loadAsync(await file.arrayBuffer());
+  const xml = await zip.file('word/document.xml')?.async('string');
+  if (!xml) throw new Error('That Word document could not be read.');
+  const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+  const body = new DOMParser().parseFromString(xml, 'application/xml');
+  const chapters = [];
+  let current = null;
+  let docTitle = '';
+  for (const para of body.getElementsByTagNameNS(W, 'p')) {
+    // Text runs, with tabs and line breaks kept as spaces. Deleted (tracked-change) text is not in w:t.
+    let text = '';
+    for (const node of para.getElementsByTagNameNS(W, '*')) {
+      if (node.localName === 't') text += node.textContent;
+      else if (node.localName === 'tab' || node.localName === 'br') text += ' ';
+    }
+    text = clean(text);
+    if (!text) continue;
+    const style = para.getElementsByTagNameNS(W, 'pStyle')[0]?.getAttributeNS(W, 'val') || '';
+    if (/^title$/i.test(style) && !docTitle) {
+      docTitle = text;
+    } else if (/^heading ?[1-3]$/i.test(style)) {
+      current = { title: text, paragraphs: [] };
+      chapters.push(current);
+    } else {
+      if (!current) {
+        current = { title: 'Opening', paragraphs: [] };
+        chapters.push(current);
+      }
+      current.paragraphs.push(text);
+    }
+  }
+  // No headings: split into parts so the contents list is still usable.
+  if (chapters.length === 1 && chapters[0].paragraphs.length > 60) {
+    const all = chapters[0].paragraphs;
+    chapters.length = 0;
+    for (let i = 0; i < all.length; i += 40) chapters.push({ title: `Part ${i / 40 + 1}`, paragraphs: all.slice(i, i + 40) });
+  } else if (chapters.length === 1 && chapters[0].title === 'Opening') {
+    chapters[0].title = docTitle || file.name.replace(/\.[^.]+$/, '');
+  }
+  let author = '';
+  const core = await zip.file('docProps/core.xml')?.async('string');
+  if (core) {
+    const props = new DOMParser().parseFromString(core, 'application/xml');
+    author = clean(props.getElementsByTagNameNS('*', 'creator')[0]?.textContent || '');
+    docTitle = docTitle || clean(props.getElementsByTagNameNS('*', 'title')[0]?.textContent || '');
+  }
+  return finish(file, { title: docTitle, author, chapters });
+}
+
 // ---------- PDF ----------
 
 async function parsePdf(file) {
@@ -133,6 +185,8 @@ export async function parseFile(file) {
   const name = file.name.toLowerCase();
   if (name.endsWith('.epub')) return parseEpub(file);
   if (name.endsWith('.pdf')) return parsePdf(file);
+  if (name.endsWith('.docx')) return parseDocx(file);
+  if (name.endsWith('.doc')) throw new Error('Older .doc files are not supported. Save it as .docx in Word and upload that.');
   if (name.endsWith('.txt') || name.endsWith('.md') || file.type.startsWith('text/')) return parseText(await file.text(), file);
-  throw new Error('Use an EPUB, PDF or plain text file.');
+  throw new Error('Use an EPUB, PDF, Word (.docx) or plain text file.');
 }
