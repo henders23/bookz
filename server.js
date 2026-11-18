@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import {
-  COMPANION_INSTRUCTIONS, CLASSIFY_INSTRUCTIONS, QUESTION_INSTRUCTIONS, KINDS, KIND_LENSES,
+  COMPANION_INSTRUCTIONS, CLASSIFY_INSTRUCTIONS, QUESTION_INSTRUCTIONS, DISCUSS_INSTRUCTIONS, KINDS, KIND_LENSES,
   buildTextBlock, buildStudentContext, buildQuestionRequest,
 } from './lib/prompt.js';
 
@@ -44,8 +44,16 @@ const DEMO_HINTS = [
   (ch) => `That idea shows up earlier than you might think. Look back through (ch ${ch}) for the first place it appears, and mark it.`,
 ];
 
+const DEMO_TALK = [
+  (ch) => `That is a fair way in. What I keep coming back to is how the first paragraph sets it up, (ch ${ch}, ¶1): the tone there is firmer than what follows. Does your reading survive that, or does it need adjusting?`,
+  () => 'I read it a little differently. To me the writer sounds less certain than the words claim, and the hedging gives it away. Which phrase would you point to, for or against that?',
+  (ch) => `I think you are onto something. Try it against the second paragraph, (ch ${ch}, ¶2), where the same idea returns in other words. I am not sure it means the same thing there.`,
+  () => 'Let us go closer. There is one word in that sentence I would not have expected. See if you can spot which one I mean, and tell me what it does to your reading.',
+];
+
 app.post('/api/chat', async (req, res) => {
-  const { doc, position, quote, marks, messages } = req.body || {};
+  const { doc, position, quote, marks, messages, mode } = req.body || {};
+  const discuss = mode === 'discuss'; // a conversation the companion opened, as opposed to hints on request
   if (!validDoc(doc)) return res.status(400).json({ error: 'No text was sent.' });
   if (!Array.isArray(messages) || !messages.length || messages.at(-1).role !== 'user') {
     return res.status(400).json({ error: 'No question was sent.' });
@@ -56,7 +64,8 @@ app.post('/api/chat', async (req, res) => {
 
   if (!live) {
     const turn = history.filter((m) => m.role === 'user').length;
-    const hint = DEMO_HINTS[(turn - 1) % DEMO_HINTS.length]((position?.ch ?? 0) + 1);
+    const pool = discuss ? DEMO_TALK : DEMO_HINTS;
+    const hint = pool[(turn - 1) % pool.length]((position?.ch ?? 0) + 1);
     return res.json({ text: hint, demo: true });
   }
 
@@ -78,7 +87,7 @@ app.post('/api/chat', async (req, res) => {
       // The text comes first and is cached, so chat and question requests share one cached copy.
       system: [
         { type: 'text', text: buildTextBlock(doc, focus), cache_control: { type: 'ephemeral' } },
-        { type: 'text', text: COMPANION_INSTRUCTIONS },
+        { type: 'text', text: discuss ? DISCUSS_INSTRUCTIONS : COMPANION_INSTRUCTIONS },
       ],
       messages: apiMessages,
     });
@@ -138,24 +147,13 @@ const QuestionSet = z.object({
 });
 
 // Placeholders shown until the API key is connected. They cannot see the text, so they stay general.
-const DEMO_QUESTIONS = {
-  // Each set runs broad to specific: the whole passage, then a part of it, then a single word.
-  notice: [
-    ['It is not obvious who these lines are meant for. The way the whole paragraph is worded gives a few clues.', 'Who do you think is being spoken to here, and what makes you say so?'],
-    ['Two things are set side by side in one of the sentences here, and they are not given equal weight.', 'What is being compared, and which side does the wording favour?'],
-    ['Some words here come back more than once, and they are not the ones you might expect.', 'Which word would you underline, and what keeps bringing the writer back to it?'],
-  ],
-  interpret: [
-    ['Taken as a whole, this paragraph could have been gentler. It is not.', 'What do you make of the stance it takes from start to finish?'],
-    ['The last sentence does something the earlier ones do not.', 'How would you describe the turn it takes at the end?'],
-    ['One word here is doing more work than the rest.', 'Which word is it for you, and why might that word have been chosen over a plainer one?'],
-  ],
-  connect: [
-    ['Read on its own this passage says one thing. After what came before, it may say another.', 'How does it change what you read earlier in the chapter?'],
-    ['One sentence here picks up something from the paragraph before it, though not in the same words.', 'What carries over, and what has shifted?'],
-    ['A word or image in this paragraph has turned up in your reading before.', 'Where was it, and how does this use of it sit beside that one?'],
-  ],
-};
+// Placeholder openings shown until the API key is connected. They cannot see the text, so they stay general.
+const DEMO_QUESTIONS = [
+  ['What strikes me here is the voice. It sounds as if it is addressed to one particular person, and I am not sure that person is the reader. I half suspect the writer is talking to themselves.', 'Who do you hear being spoken to, and what in the wording makes you think so?'],
+  ['I read this paragraph as more of an argument than it first looks. It seems to be answering an objection that is never stated, which makes me wonder what the writer is worried about.', 'What do you think the unspoken objection is, and where do you see it being answered?'],
+  ['It surprises me how much weight this passage puts on a few plain words that keep returning. I think the repetition is doing the persuading here, more than any reason given.', 'Which repeated word would you pick out, and does it mean the same thing each time?'],
+  ['I am not convinced this passage is as settled as it sounds. The confident opening and the way it ends do not quite match, to my ear.', 'Where would you say the tone shifts, and what do you make of the change?'],
+];
 const ORDINALS = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'];
 const demoWhere = (doc, ch, p, open) => {
   const count = doc.chapters[ch].paragraphs.length;
@@ -175,8 +173,8 @@ app.post('/api/questions', async (req, res) => {
   const lenses = KIND_LENSES[KINDS.includes(kind) ? kind : 'general'];
 
   if (!live) {
-    const pool = DEMO_QUESTIONS[level] || DEMO_QUESTIONS.notice;
-    const questions = pool.map(([notice, question], i) => {
+    const turn = Array.isArray(avoid) ? avoid.length : 0;
+    const questions = [DEMO_QUESTIONS[turn % DEMO_QUESTIONS.length]].map(([notice, question], i) => {
       const ch = para ? para.ch : read[read.length - 1];
       const count = doc.chapters[ch].paragraphs.length;
       const p = para ? para.p : Math.floor(((i + 1) * count) / 4 + (avoid?.length || 0)) % count;
@@ -201,8 +199,8 @@ app.post('/api/questions', async (req, res) => {
     const questions = (response.parsed_output?.questions || [])
       .map((q) => ({ where: q.where.trim(), notice: q.notice.trim(), question: q.question.trim(), ch: q.ch - 1, p: q.p - 1, lens: lenses.includes(q.lens) ? q.lens : 'themes' }))
       .filter((q) => q.question && allowed(q.ch, q.p))
-      .slice(0, 3);
-    if (!questions.length) return res.status(502).json({ error: 'No questions came back. Try again.' });
+      .slice(0, 1);
+    if (!questions.length) return res.status(502).json({ error: 'Nothing came back. Try again.' });
     res.json({ questions });
   } catch (error) {
     sendApiError(res, error);

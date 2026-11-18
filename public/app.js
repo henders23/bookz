@@ -631,7 +631,6 @@ const LENS_LABELS = {
   argument: 'The argument', evidence: 'Evidence', terms: 'Key terms', assumptions: 'Assumptions and limits',
 };
 const LEVELS = ['notice', 'interpret', 'connect'];
-const STEP_LABELS = ['Wide view', 'Closer', 'Closest']; // each set of three runs broad to specific
 const LEVEL_LABELS = { notice: 'Notice', interpret: 'Interpret', connect: 'Connect' };
 const lensLabel = (lens) => (lens === 'themes' && kind === 'academic' ? 'Main ideas' : LENS_LABELS[lens] || 'Themes');
 const docPayload = () => ({ title: doc.title, author: doc.author, chapters: doc.chapters });
@@ -673,7 +672,7 @@ function renderQuestionSetup() {
   chipRow($('lenses'), [['mix', 'A mix'], ...lenses.map((l) => [l, lensLabel(l)])], qPrefs.lens, (v) => { qPrefs.lens = v; renderQuestionSetup(); saveState(); });
   chipRow($('levels'), LEVELS.map((l) => [l, LEVEL_LABELS[l]]), qPrefs.level, (v) => { qPrefs.level = v; renderQuestionSetup(); saveState(); });
   $('q-go').disabled = qBusy;
-  $('q-go').textContent = qPrefs.scope === 'read' ? 'Ask me about what I have read' : 'Ask me about this chapter';
+  $('q-go').textContent = (questions.length ? 'Start another conversation about ' : 'Start a conversation about ') + (qPrefs.scope === 'read' ? 'what I have read' : 'this chapter');
   $('q-options').hidden = !optionsOpen;
   $('q-options-toggle').setAttribute('aria-expanded', String(optionsOpen));
   $('q-options-toggle').textContent = optionsOpen ? 'Hide options' : 'Options';
@@ -693,7 +692,7 @@ async function askQuestions(opts = {}) {
   const level = opts.level || qPrefs.level;
   const status = $('q-status');
   status.className = 'status';
-  status.textContent = 'Reading for good questions…';
+  status.textContent = 'Reading for something worth talking about…';
   try {
     const res = await fetch('/api/questions', {
       method: 'POST',
@@ -712,17 +711,18 @@ async function askQuestions(opts = {}) {
       }),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || 'No questions came back. Try again.');
+    if (!res.ok) throw new Error(data.error || 'Nothing came back. Try again.');
     const batch = uid();
     const fresh = data.questions.map((q, i) => ({
-      ...q, id: uid(), batch, step: i + 1, level, asked: lens, paragraph: opts.paragraph || null, demo: Boolean(data.demo), messages: [],
+      ...q, id: uid(), batch, talk: true, open: true, level, asked: lens, paragraph: opts.paragraph || null, demo: Boolean(data.demo), messages: [],
     }));
+    for (const old of questions) old.open = false; // one conversation open at a time
     questions = [...fresh, ...questions].slice(0, 30);
     status.textContent = '';
     $('panel-questions').scrollTop = 0;
   } catch (error) {
     status.className = 'status error';
-    status.textContent = error.message || 'No questions came back. Try again.';
+    status.textContent = error.message || 'Nothing came back. Try again.';
   }
   qBusy = false;
   renderQuestionSetup();
@@ -740,13 +740,16 @@ async function answerQuestion(q, text) {
   answering.add(q.id);
   renderQuestions(q.id);
   saveState();
-  const note = `[The student is answering this prompt you set about (ch ${q.ch + 1}, ¶${q.p + 1}): "${fullQuestion(q)}"]\n`;
+  const note = q.talk
+    ? `[You opened this conversation about (ch ${q.ch + 1}, ¶${q.p + 1}) by saying: "${fullQuestion(q)}"]\n`
+    : `[The student is answering this prompt you set about (ch ${q.ch + 1}, ¶${q.p + 1}): "${fullQuestion(q)}"]\n`;
   try {
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         doc: docPayload(),
+        mode: q.talk ? 'discuss' : undefined,
         position: pos,
         quote: null,
         marks: marks.map(({ ch, p, text: t, note: n }) => ({ ch, p, text: t, note: n })),
@@ -770,15 +773,14 @@ const fullQuestion = (q) => [q.where, q.notice, q.question].filter(Boolean).join
 function questionCard(q) {
   const para = doc.chapters[q.ch]?.paragraphs[q.p] || '';
   const count = (q.messages || []).length;
-  const input = el('input', { type: 'text', autocomplete: 'off', placeholder: 'Write your answer', 'aria-label': 'Your answer' });
+  const input = el('input', { type: 'text', autocomplete: 'off', placeholder: 'What do you think?', 'aria-label': 'Your reply' });
   input.value = q.draft || '';
   input.addEventListener('input', () => { q.draft = input.value; });
   const menu = el('details', { class: 'q-menu' },
     el('summary', { 'aria-label': 'More' }, '⋯'),
     el('div', { class: 'q-menu-items' },
-      el('button', { type: 'button', text: 'Hint', onclick: () => answerQuestion(q, 'Can I have a hint?') }),
       el('button', { type: 'button', text: 'Save to notes', onclick: () => {
-        marks.push({ id: uid(), ch: q.ch, p: q.p, text: '', note: `Question: ${fullQuestion(q)}` });
+        marks.push({ id: uid(), ch: q.ch, p: q.p, text: '', note: `From a conversation: ${fullQuestion(q)}` });
         menu.open = false;
         $('q-status').className = 'status';
         $('q-status').textContent = 'Saved to notes.';
@@ -789,7 +791,7 @@ function questionCard(q) {
     ),
   );
   return el('div', { class: 'q-card', 'data-id': q.id },
-    el('span', { class: 'q-tag', text: `${q.step ? `${q.step} of 3 · ${STEP_LABELS[q.step - 1] || ''} · ` : ''}${lensLabel(q.lens)} · ${LEVEL_LABELS[q.level] || 'Notice'}${q.demo ? ' · demo' : ''}` }),
+    el('span', { class: 'q-tag', text: `${lensLabel(q.lens)}${q.demo ? ' · demo' : ''}` }),
     el('p', { class: 'q-lead' }, ...renderReply(q.where || `Look at ${placeLabel(q.ch, q.p)}.`)),
     el('div', { class: 'q-where' },
       el('strong', { text: placeLabel(q.ch, q.p) }),
@@ -801,7 +803,7 @@ function questionCard(q) {
       el('button', { type: 'button', class: 'btn btn-small go', text: 'Go to passage', onclick: () => goTo(q.ch, q.p) }),
       el('button', {
         type: 'button', class: 'btn btn-small', 'aria-expanded': String(Boolean(q.open)),
-        text: q.open ? 'Close' : count ? `Answer · ${count}` : 'Answer',
+        text: q.open ? 'Close' : count ? `Continue · ${count}` : 'Reply',
         onclick: () => { q.open = !q.open; renderQuestions(q.open ? q.id : null); saveState(); },
       }),
       menu,
@@ -809,10 +811,10 @@ function questionCard(q) {
     q.open
       ? el('div', { class: 'q-answer' },
           ...(q.messages || []).map(messageNode),
-          answering.has(q.id) ? el('div', { class: 'msg bot pending', text: 'Thinking of a hint…' }) : null,
+          answering.has(q.id) ? el('div', { class: 'msg bot pending', text: 'Thinking…' }) : null,
           el('form', { class: 'composer-row', onsubmit: (e) => { e.preventDefault(); answerQuestion(q, input.value.trim()); } },
             input,
-            el('button', { type: 'submit', class: 'btn btn-solid btn-send', 'aria-label': 'Send answer', text: '↑' }),
+            el('button', { type: 'submit', class: 'btn btn-solid btn-send', 'aria-label': 'Send reply', text: '↑' }),
           ),
         )
       : null,
@@ -824,14 +826,11 @@ function followUps(latest) {
   const first = latest[0];
   const used = [...new Set(latest.map((q) => q.lens))];
   const base = { level: first.level, lens: first.asked || 'mix', paragraph: first.paragraph || undefined };
-  const next = LEVELS[LEVELS.indexOf(first.level) + 1];
   const chip = (text, opts) => el('button', { type: 'button', class: 'chip', text, disabled: qBusy, onclick: () => askQuestions(opts) });
   return el('div', { class: 'q-follow' },
-    el('span', { class: 'q-tag', text: 'Next' }),
+    el('span', { class: 'q-tag', text: 'Start another' }),
     el('div', { class: 'chips' },
-      next ? chip('Harder', { ...base, level: next }) : null,
-      ...(base.lens === 'mix' ? used.slice(0, 3).map((l) => chip(`More on ${lensLabel(l).toLowerCase()}`, { ...base, lens: l })) : []),
-      chip('More like this', base),
+      ...used.slice(0, 3).map((l) => chip(`More on ${lensLabel(l).toLowerCase()}`, { ...base, lens: l })),
       chip('Something else', { ...base, lens: 'mix', exclude: used }),
     ),
   );
@@ -840,7 +839,7 @@ function followUps(latest) {
 function renderQuestions(focusId) {
   const box = $('questions');
   if (!questions.length) {
-    box.replaceChildren(el('p', { class: 'empty', text: 'One click gives you three questions on the chapter you are reading. Each one tells you which passage it is about.' }));
+    box.replaceChildren(el('p', { class: 'empty', text: 'I will pick a passage from the chapter you are reading, tell you what I notice in it, and ask what you make of it. Then we talk.' }));
     return;
   }
   const batch = questions[0].batch;
@@ -849,7 +848,7 @@ function renderQuestions(focusId) {
   box.replaceChildren(
     ...latest.map(questionCard),
     latest.length ? followUps(latest) : null,
-    earlier.length ? el('div', { class: 'group-title', text: 'Earlier questions' }) : null,
+    earlier.length ? el('div', { class: 'group-title', text: 'Earlier conversations' }) : null,
     ...earlier.map(questionCard),
   );
   if (focusId) box.querySelector(`.q-card[data-id="${focusId}"] .q-answer input`)?.focus();
@@ -902,7 +901,7 @@ function buildPrint(withText, withMarks) {
     out.push(section);
     const answered = questions.filter((q) => (q.messages || []).some((m) => m.role === 'user'));
     if (answered.length) {
-      const qa = el('div', { class: 'p-section' }, el('h2', { text: 'Questions and answers' }));
+      const qa = el('div', { class: 'p-section' }, el('h2', { text: 'Conversations' }));
       for (const q of answered) {
         qa.append(
           el('div', { class: 'p-item' },

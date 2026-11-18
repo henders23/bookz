@@ -91,7 +91,7 @@
     <aside class="side" aria-label="Companion and notes">
       <div class="tabs" role="tablist">
         <button type="button" role="tab" id="tab-chat" aria-selected="true" aria-controls="panel-chat">Companion</button>
-        <button type="button" role="tab" id="tab-questions" aria-selected="false" aria-controls="panel-questions">Questions</button>
+        <button type="button" role="tab" id="tab-questions" aria-selected="false" aria-controls="panel-questions">Discuss</button>
         <button type="button" role="tab" id="tab-notes" aria-selected="false" aria-controls="panel-notes">Notes · <span id="note-count">0</span></button>
       </div>
 
@@ -116,9 +116,9 @@
       </section>
 
       <section id="panel-questions" class="panel panel-scroll" role="tabpanel" aria-labelledby="tab-questions" hidden>
-        <p class="rule">I ask, you answer. Every question points to a passage you have read. <span id="demo-tag-q" hidden>Demo questions until the API key is connected.</span></p>
+        <p class="rule">I say what I notice, you take it further. Always about a passage you have read. <span id="demo-tag-q" hidden>Demo conversation until the API key is connected.</span></p>
         <div class="q-setup">
-          <button type="button" id="q-go" class="btn btn-solid">Ask me about this chapter</button>
+          <button type="button" id="q-go" class="btn btn-solid">Start a conversation about this chapter</button>
           <button type="button" id="q-options-toggle" class="linkish q-toggle" aria-expanded="false" aria-controls="q-options">Options</button>
           <div id="q-options" class="q-options" hidden>
             <div class="q-row">
@@ -130,11 +130,11 @@
               </select>
             </div>
             <fieldset>
-              <legend>Ask me about</legend>
+              <legend>Talk about</legend>
               <div id="lenses" class="chips"></div>
             </fieldset>
             <fieldset>
-              <legend>How hard</legend>
+              <legend>How far to push me</legend>
               <div id="levels" class="chips"></div>
             </fieldset>
             <div class="q-row">
@@ -171,7 +171,7 @@
   <button type="button" data-act="highlight" class="sel-primary">Highlight</button>
   <button type="button" data-act="note">Add note</button>
   <button type="button" data-act="ask">Ask</button>
-  <button type="button" data-act="quiz">Question me</button>
+  <button type="button" data-act="quiz">Discuss</button>
   <button type="button" data-act="remove" hidden>Remove</button>
 </div>
 

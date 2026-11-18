@@ -35,16 +35,17 @@ Its instructions are in [`lib/prompt.js`](lib/prompt.js), in plain English. Edit
 - Themes and connections are welcome. There it may suggest where to look and need not end with a question.
 - References are written as `(ch 3, ¶12)` and the app turns them into links that jump to the passage.
 
-### Questions mode
+### Discuss mode
 
-In the Questions tab the companion asks and the student answers. The instructions are `QUESTION_INSTRUCTIONS` in the same file.
+In the Discuss tab the companion starts the conversation. The instructions are `QUESTION_INSTRUCTIONS` (the opening) and `DISCUSS_INSTRUCTIONS` (the replies) in the same file.
 
-- The text is classified once as literature, academic or general, which decides the kinds of question on offer. The student can change it.
-- One button asks three questions on the open chapter. Follow-up buttons under them (Harder, More on a kind, More like this, Something else) steer the next three.
-- Under Options the student can set the kind of question, the difficulty (Notice, Interpret, Connect), where to draw from (this chapter, or everything they have opened), and a topic.
-- Each set of three runs broad to specific: the passage as a whole, then one sentence or step, then a single word or phrase.
-- Each question has three parts: where to look ("Read the first paragraph again"), something interesting to notice there, then the question. It is always about a paragraph the student has already read, and has a button that goes straight there.
-- The student answers on the question card and the companion replies under it, by the same hints-only rules. Answered questions are included in the PDF export.
+- The text is classified once as literature, academic or general, which decides the kinds of topic on offer. The student can change it.
+- One button starts a conversation about the open chapter. The companion says where to look ("Read the first paragraph again"), gives a view of its own about that passage, and asks the student to take it further. It is always about a paragraph the student has already read, with a button that goes straight there.
+- The student replies on the card. The companion responds to what they said, adds something of its own, and hands it back, moving from the passage as a whole towards a sentence and then a word. It shares views but does not deliver a complete reading.
+- Under Options the student can set what to talk about, how far to be pushed, where to draw from, and a topic.
+- Conversations the student has replied to are included in the PDF export.
+
+This is deliberately different from the Companion tab, where the student asks and the companion gives hints without offering a view.
 
 With each question the server sends the text, the open chapter, the student's highlights and notes, and the conversation in the current topic. The text is cached between questions. Texts over about 600,000 characters are sent in part (contents list plus the chapters the student is working in).
 
