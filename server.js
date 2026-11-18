@@ -139,20 +139,21 @@ const QuestionSet = z.object({
 
 // Placeholders shown until the API key is connected. They cannot see the text, so they stay general.
 const DEMO_QUESTIONS = {
+  // Each set runs broad to specific: the whole passage, then a part of it, then a single word.
   notice: [
+    ['It is not obvious who these lines are meant for. The way the whole paragraph is worded gives a few clues.', 'Who do you think is being spoken to here, and what makes you say so?'],
+    ['Two things are set side by side in one of the sentences here, and they are not given equal weight.', 'What is being compared, and which side does the wording favour?'],
     ['Some words here come back more than once, and they are not the ones you might expect.', 'Which word would you underline, and what keeps bringing the writer back to it?'],
-    ['It is not obvious who these lines are meant for. The way they are worded gives a few clues.', 'Who do you think is being spoken to here, and what makes you say so?'],
-    ['Two things are set side by side in this paragraph, and they are not given equal weight.', 'What is being compared, and which side does the wording favour?'],
   ],
   interpret: [
-    ['The paragraph could have started in a gentler way. It does not.', 'What do you make of the way it opens?'],
+    ['Taken as a whole, this paragraph could have been gentler. It is not.', 'What do you make of the stance it takes from start to finish?'],
     ['The last sentence does something the earlier ones do not.', 'How would you describe the turn it takes at the end?'],
     ['One word here is doing more work than the rest.', 'Which word is it for you, and why might that word have been chosen over a plainer one?'],
   ],
   connect: [
-    ['This paragraph picks up something from the one before it, though not in the same words.', 'What carries over, and what has shifted?'],
-    ['You have met an idea like this earlier in your reading.', 'Where was it, and how does this version sit beside that one?'],
     ['Read on its own this passage says one thing. After what came before, it may say another.', 'How does it change what you read earlier in the chapter?'],
+    ['One sentence here picks up something from the paragraph before it, though not in the same words.', 'What carries over, and what has shifted?'],
+    ['A word or image in this paragraph has turned up in your reading before.', 'Where was it, and how does this use of it sit beside that one?'],
   ],
 };
 const ORDINALS = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'];

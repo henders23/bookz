@@ -42,6 +42,7 @@ In the Questions tab the companion asks and the student answers. The instruction
 - The text is classified once as literature, academic or general, which decides the kinds of question on offer. The student can change it.
 - One button asks three questions on the open chapter. Follow-up buttons under them (Harder, More on a kind, More like this, Something else) steer the next three.
 - Under Options the student can set the kind of question, the difficulty (Notice, Interpret, Connect), where to draw from (this chapter, or everything they have opened), and a topic.
+- Each set of three runs broad to specific: the passage as a whole, then one sentence or step, then a single word or phrase.
 - Each question has three parts: where to look ("Read the first paragraph again"), something interesting to notice there, then the question. It is always about a paragraph the student has already read, and has a button that goes straight there.
 - The student answers on the question card and the companion replies under it, by the same hints-only rules. Answered questions are included in the PDF export.
 

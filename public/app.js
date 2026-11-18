@@ -631,6 +631,7 @@ const LENS_LABELS = {
   argument: 'The argument', evidence: 'Evidence', terms: 'Key terms', assumptions: 'Assumptions and limits',
 };
 const LEVELS = ['notice', 'interpret', 'connect'];
+const STEP_LABELS = ['Wide view', 'Closer', 'Closest']; // each set of three runs broad to specific
 const LEVEL_LABELS = { notice: 'Notice', interpret: 'Interpret', connect: 'Connect' };
 const lensLabel = (lens) => (lens === 'themes' && kind === 'academic' ? 'Main ideas' : LENS_LABELS[lens] || 'Themes');
 const docPayload = () => ({ title: doc.title, author: doc.author, chapters: doc.chapters });
@@ -713,8 +714,8 @@ async function askQuestions(opts = {}) {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || 'No questions came back. Try again.');
     const batch = uid();
-    const fresh = data.questions.map((q) => ({
-      ...q, id: uid(), batch, level, asked: lens, paragraph: opts.paragraph || null, demo: Boolean(data.demo), messages: [],
+    const fresh = data.questions.map((q, i) => ({
+      ...q, id: uid(), batch, step: i + 1, level, asked: lens, paragraph: opts.paragraph || null, demo: Boolean(data.demo), messages: [],
     }));
     questions = [...fresh, ...questions].slice(0, 30);
     status.textContent = '';
@@ -788,7 +789,7 @@ function questionCard(q) {
     ),
   );
   return el('div', { class: 'q-card', 'data-id': q.id },
-    el('span', { class: 'q-tag', text: `${lensLabel(q.lens)} · ${LEVEL_LABELS[q.level] || 'Notice'}${q.demo ? ' · demo' : ''}` }),
+    el('span', { class: 'q-tag', text: `${q.step ? `${q.step} of 3 · ${STEP_LABELS[q.step - 1] || ''} · ` : ''}${lensLabel(q.lens)} · ${LEVEL_LABELS[q.level] || 'Notice'}${q.demo ? ' · demo' : ''}` }),
     el('p', { class: 'q-lead' }, ...renderReply(q.where || `Look at ${placeLabel(q.ch, q.p)}.`)),
     el('div', { class: 'q-where' },
       el('strong', { text: placeLabel(q.ch, q.p) }),
