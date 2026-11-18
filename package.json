@@ -15,6 +15,7 @@
     "@anthropic-ai/sdk": "^1.8.0",
     "express": "^5.3.0",
     "jszip": "^3.10.2",
-    "pdfjs-dist": "^6.5.438"
+    "pdfjs-dist": "^6.5.438",
+    "zod": "^4.6.7"
   }
 }

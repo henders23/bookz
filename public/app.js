@@ -52,7 +52,7 @@ function loadState(id) {
 function saveState() {
   if (!doc) return;
   try {
-    localStorage.setItem(`bookz:state:${doc.id}`, JSON.stringify({ ch: pos.ch, marks, threads, activeThread }));
+    localStorage.setItem(`bookz:state:${doc.id}`, JSON.stringify({ ch: pos.ch, marks, threads, activeThread, kind, visited, questions, qPrefs }));
   } catch { /* storage full or blocked: state lasts for this visit only */ }
 }
 
@@ -67,6 +67,11 @@ let pendingQuote = null; // { ch, p, text }
 let pendingSelection = null; // [{ ch, p, start, end, text }]
 let selectedMark = null;
 let busy = false;
+let kind = null; // 'literature' | 'academic' | 'general', set automatically and changeable
+let visited = []; // chapters the student has opened; questions only draw on these
+let questions = []; // { id, question, ch, p, lens, level, demo, threadId }
+let qPrefs = { lens: 'mix', level: 'notice', scope: 'chapter' };
+let qBusy = false;
 let barShownAt = 0;
 
 // ---------- start page ----------
@@ -148,6 +153,12 @@ function openDoc(d) {
   threads = saved.threads || [];
   activeThread = saved.activeThread || null;
   pendingQuote = null;
+  kind = saved.kind || null;
+  visited = saved.visited || [];
+  questions = saved.questions || [];
+  qPrefs = { lens: 'mix', level: 'notice', scope: 'chapter', ...saved.qPrefs };
+  $('q-status').textContent = '';
+  if (!kind) classify(d);
   $('doc-title').textContent = d.title;
   $('doc-author').textContent = d.author || '';
   $('oa-tag').hidden = !d.rights;
@@ -158,6 +169,8 @@ function openDoc(d) {
   renderThreads();
   renderNotes();
   renderQuote();
+  renderQuestionSetup();
+  renderQuestions();
 }
 
 function placeLabel(ch, p) {
@@ -168,7 +181,7 @@ function placeLabel(ch, p) {
 function fillPara(node, text, list) {
   node.replaceChildren();
   let at = 0;
-  for (const m of [...list].sort((a, b) => a.start - b.start)) {
+  for (const m of list.filter((x) => x.end > x.start).sort((a, b) => a.start - b.start)) {
     if (m.start > at) node.append(text.slice(at, m.start));
     node.append(el('mark', { 'data-id': m.id, class: m.note ? 'has-note' : '', text: text.slice(Math.max(m.start, at), m.end) }));
     at = Math.max(at, m.end);
@@ -178,6 +191,7 @@ function fillPara(node, text, list) {
 
 function renderChapter(flashP) {
   const ch = doc.chapters[pos.ch];
+  if (!visited.includes(pos.ch)) visited.push(pos.ch);
   const text = $('text');
   const last = doc.chapters.length - 1;
   text.replaceChildren(
@@ -353,6 +367,14 @@ $('sel-bar').addEventListener('click', (e) => {
       $('ask').focus();
     }
   }
+  if (act === 'quiz') {
+    const src = mark || selection?.[0];
+    if (src) {
+      window.getSelection().removeAllRanges();
+      showTab('questions');
+      askQuestions({ ch: src.ch, p: src.p });
+    }
+  }
   if (act === 'remove' && mark) {
     marks = marks.filter((m) => m !== mark);
     afterMarksChange();
@@ -362,14 +384,12 @@ $('sel-bar').addEventListener('click', (e) => {
 // ---------- tabs ----------
 
 function showTab(name) {
-  const chat = name === 'chat';
-  $('tab-chat').setAttribute('aria-selected', chat);
-  $('tab-notes').setAttribute('aria-selected', !chat);
-  $('panel-chat').hidden = !chat;
-  $('panel-notes').hidden = chat;
+  for (const tab of ['chat', 'questions', 'notes']) {
+    $(`tab-${tab}`).setAttribute('aria-selected', tab === name);
+    $(`panel-${tab}`).hidden = tab !== name;
+  }
 }
-$('tab-chat').addEventListener('click', () => showTab('chat'));
-$('tab-notes').addEventListener('click', () => showTab('notes'));
+for (const tab of ['chat', 'questions', 'notes']) $(`tab-${tab}`).addEventListener('click', () => showTab(tab));
 
 // ---------- notes ----------
 
@@ -523,10 +543,25 @@ function apiText(m) {
   return `[Selection at (ch ${m.quote.ch + 1}, ¶${m.quote.p + 1}): "${clip(m.quote.text, 600)}"]\n${m.text}`;
 }
 
-$('ask-form').addEventListener('submit', async (e) => {
+$('ask-form').addEventListener('submit', (e) => {
   e.preventDefault();
   const text = $('ask').value.trim();
-  if (!text || busy) return;
+  if (text) sendMessage(text);
+});
+
+function apiMessages(thread) {
+  const list = thread.messages.filter((m) => !m.error);
+  // A topic opened from a question starts with the companion's question. The API needs the student
+  // to speak first, so that question travels as a note on their first message instead.
+  const lead = list[0]?.role === 'assistant' ? list.shift() : null;
+  return list.map((m, i) => ({
+    role: m.role,
+    text: (lead && i === 0 ? `[The student is answering this question you set: "${lead.text}"]\n` : '') + apiText(m),
+  }));
+}
+
+async function sendMessage(text) {
+  if (busy) return;
   let thread = threads.find((t) => t.id === activeThread && t.open);
   if (!thread) {
     for (const t of threads) t.open = false; // starting a new topic collapses the others
@@ -552,7 +587,7 @@ $('ask-form').addEventListener('submit', async (e) => {
         position: pos,
         quote,
         marks: marks.map(({ ch, p, text: t, note }) => ({ ch, p, text: t, note })),
-        messages: thread.messages.filter((m) => !m.error).map((m) => ({ role: m.role, text: apiText(m) })),
+        messages: apiMessages(thread),
       }),
     });
     const data = await res.json().catch(() => ({}));
@@ -564,7 +599,157 @@ $('ask-form').addEventListener('submit', async (e) => {
   busy = false;
   renderThreads();
   saveState();
+}
+
+// ---------- questions ----------
+
+const KIND_LENSES = {
+  literature: ['themes', 'examples', 'connections', 'close', 'character', 'imagery', 'structure'],
+  academic: ['themes', 'examples', 'connections', 'close', 'argument', 'evidence', 'terms', 'assumptions'],
+  general: ['themes', 'examples', 'connections', 'close'],
+};
+const LENS_LABELS = {
+  mix: 'A mix', themes: 'Themes', examples: 'Examples', connections: 'Connections', close: 'Close reading',
+  character: 'Character and voice', imagery: 'Imagery and language', structure: 'Structure',
+  argument: 'The argument', evidence: 'Evidence', terms: 'Key terms', assumptions: 'Assumptions and limits',
+};
+const LEVELS = ['notice', 'interpret', 'connect'];
+const LEVEL_LABELS = { notice: 'Notice', interpret: 'Interpret', connect: 'Connect' };
+const lensLabel = (lens) => (lens === 'themes' && kind === 'academic' ? 'Main ideas' : LENS_LABELS[lens] || 'Themes');
+const docPayload = () => ({ title: doc.title, author: doc.author, chapters: doc.chapters });
+
+async function classify(d) {
+  try {
+    const res = await fetch('/api/classify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ doc: { title: d.title, author: d.author, chapters: d.chapters } }),
+    });
+    const data = await res.json();
+    if (doc !== d || kind) return; // the student moved on, or already chose
+    kind = KIND_LENSES[data.kind] ? data.kind : 'general';
+  } catch {
+    if (doc !== d || kind) return;
+    kind = 'general';
+  }
+  renderQuestionSetup();
+  saveState();
+}
+
+function chipRow(box, items, current, onPick) {
+  box.replaceChildren(
+    ...items.map(([value, label]) =>
+      el('button', { type: 'button', class: 'chip', 'aria-pressed': String(value === current), text: label, onclick: () => onPick(value) }),
+    ),
+  );
+}
+
+function renderQuestionSetup() {
+  const lenses = KIND_LENSES[kind || 'general'];
+  if (qPrefs.lens !== 'mix' && !lenses.includes(qPrefs.lens)) qPrefs.lens = 'mix';
+  $('kind').value = kind || 'general';
+  $('q-scope').value = qPrefs.scope;
+  chipRow($('lenses'), [['mix', 'A mix'], ...lenses.map((l) => [l, lensLabel(l)])], qPrefs.lens, (v) => { qPrefs.lens = v; renderQuestionSetup(); saveState(); });
+  chipRow($('levels'), LEVELS.map((l) => [l, LEVEL_LABELS[l]]), qPrefs.level, (v) => { qPrefs.level = v; renderQuestionSetup(); saveState(); });
+  $('q-go').disabled = qBusy;
+  $('q-harder').disabled = qBusy || qPrefs.level === 'connect';
+  $('q-harder').hidden = !questions.length;
+}
+$('kind').addEventListener('change', (e) => { kind = e.target.value; renderQuestionSetup(); saveState(); });
+$('q-scope').addEventListener('change', (e) => { qPrefs.scope = e.target.value; saveState(); });
+$('q-go').addEventListener('click', () => askQuestions());
+$('q-harder').addEventListener('click', () => {
+  qPrefs.level = LEVELS[Math.min(LEVELS.indexOf(qPrefs.level) + 1, LEVELS.length - 1)];
+  askQuestions();
 });
+
+async function askQuestions(paragraph) {
+  if (qBusy) return;
+  qBusy = true;
+  renderQuestionSetup();
+  const status = $('q-status');
+  status.className = 'status';
+  status.textContent = 'Reading for good questions…';
+  try {
+    const res = await fetch('/api/questions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        doc: docPayload(),
+        kind: kind || 'general',
+        lens: qPrefs.lens,
+        level: qPrefs.level,
+        chapters: qPrefs.scope === 'read' ? visited : [pos.ch],
+        paragraph,
+        focus: $('q-focus').value.trim(),
+        avoid: questions.slice(0, 20).map((q) => q.question),
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'No questions came back. Try again.');
+    const fresh = data.questions.map((q) => ({ ...q, id: uid(), level: qPrefs.level, demo: Boolean(data.demo) }));
+    questions = [...fresh, ...questions].slice(0, 30);
+    status.textContent = '';
+  } catch (error) {
+    status.className = 'status error';
+    status.textContent = error.message || 'No questions came back. Try again.';
+  }
+  qBusy = false;
+  renderQuestionSetup();
+  renderQuestions();
+  saveState();
+}
+
+function openQuestionTopic(q) {
+  let thread = threads.find((t) => t.id === q.threadId);
+  if (!thread) {
+    thread = {
+      id: uid(), title: clip(q.question, 48), open: true, showAll: false,
+      messages: [{ role: 'assistant', text: `${q.question} (ch ${q.ch + 1}, ¶${q.p + 1})`, demo: q.demo }],
+    };
+    threads.push(thread);
+    q.threadId = thread.id;
+  }
+  for (const t of threads) t.open = t === thread;
+  activeThread = thread.id;
+  showTab('chat');
+  renderThreads();
+  saveState();
+}
+
+function renderQuestions() {
+  const box = $('questions');
+  if (!questions.length) {
+    box.replaceChildren(el('p', { class: 'empty', text: 'Choose what you want to be asked about, then ask for questions. You can also select a passage and choose “Question me”.' }));
+    return;
+  }
+  box.replaceChildren(
+    ...questions.map((q) => {
+      const para = doc.chapters[q.ch]?.paragraphs[q.p] || '';
+      return el('div', { class: 'q-card' },
+        el('span', { class: 'q-tag', text: `${lensLabel(q.lens)} · ${LEVEL_LABELS[q.level] || 'Notice'}${q.demo ? ' · demo' : ''}` }),
+        el('p', { class: 'q-text' }, ...renderReply(q.question)),
+        el('div', { class: 'q-where' },
+          el('strong', { text: `About ${placeLabel(q.ch, q.p)}` }),
+          el('span', { text: `“${clip(para, 110)}”` }),
+        ),
+        el('div', { class: 'q-buttons' },
+          el('button', { type: 'button', class: 'btn btn-small go', text: 'Go to passage', onclick: () => goTo(q.ch, q.p) }),
+          el('button', { type: 'button', class: 'btn btn-small', text: 'Answer', onclick: () => { openQuestionTopic(q); $('ask').focus(); } }),
+          el('button', { type: 'button', class: 'btn btn-small', text: 'Hint', onclick: () => { openQuestionTopic(q); sendMessage('Can I have a hint?'); } }),
+          el('button', { type: 'button', class: 'btn btn-small', text: 'Save to notes', onclick: (e) => {
+            marks.push({ id: uid(), ch: q.ch, p: q.p, text: '', note: `Question: ${q.question}` });
+            e.target.textContent = 'Saved';
+            e.target.disabled = true;
+            renderNotes();
+            saveState();
+          } }),
+          el('button', { type: 'button', class: 'btn btn-small', text: 'Remove', onclick: () => { questions = questions.filter((x) => x !== q); renderQuestions(); renderQuestionSetup(); saveState(); } }),
+        ),
+      );
+    }),
+  );
+}
 
 // ---------- export ----------
 
@@ -638,6 +823,6 @@ $('export-form').addEventListener('submit', (e) => {
 
 fetch('/api/health')
   .then((r) => r.json())
-  .then((h) => { $('demo-tag').hidden = h.live; })
+  .then((h) => { $('demo-tag').hidden = h.live; $('demo-tag-q').hidden = h.live; })
   .catch(() => {});
 refreshRecent();

@@ -91,6 +91,7 @@
     <aside class="side" aria-label="Companion and notes">
       <div class="tabs" role="tablist">
         <button type="button" role="tab" id="tab-chat" aria-selected="true" aria-controls="panel-chat">Companion</button>
+        <button type="button" role="tab" id="tab-questions" aria-selected="false" aria-controls="panel-questions">Questions</button>
         <button type="button" role="tab" id="tab-notes" aria-selected="false" aria-controls="panel-notes">Notes · <span id="note-count">0</span></button>
       </div>
 
@@ -114,6 +115,43 @@
         </form>
       </section>
 
+      <section id="panel-questions" class="panel panel-scroll" role="tabpanel" aria-labelledby="tab-questions" hidden>
+        <p class="rule">I ask, you answer. Every question points to a passage you have read. <span id="demo-tag-q" hidden>Demo questions until the API key is connected.</span></p>
+        <div class="q-setup">
+          <div class="q-row">
+            <label for="kind">Reading as</label>
+            <select id="kind" class="select">
+              <option value="literature">Literature</option>
+              <option value="academic">Academic text</option>
+              <option value="general">General</option>
+            </select>
+          </div>
+          <fieldset>
+            <legend>Ask me about</legend>
+            <div id="lenses" class="chips"></div>
+          </fieldset>
+          <fieldset>
+            <legend>How hard</legend>
+            <div id="levels" class="chips"></div>
+          </fieldset>
+          <div class="q-row">
+            <label for="q-scope">From</label>
+            <select id="q-scope" class="select">
+              <option value="chapter">This chapter</option>
+              <option value="read">Everything I have read</option>
+            </select>
+          </div>
+          <label class="sr-only" for="q-focus">Anything in particular?</label>
+          <input id="q-focus" type="text" autocomplete="off" maxlength="200" placeholder="Anything in particular? (optional)">
+          <div class="q-actions">
+            <button type="button" id="q-go" class="btn btn-solid">Ask me 3 questions</button>
+            <button type="button" id="q-harder" class="btn btn-outline">Harder</button>
+          </div>
+          <p id="q-status" class="status" role="status"></p>
+        </div>
+        <div id="questions" class="q-list"></div>
+      </section>
+
       <section id="panel-notes" class="panel" role="tabpanel" aria-labelledby="tab-notes" hidden>
         <div id="notes" class="notes"></div>
         <form id="note-form" class="composer">
@@ -133,6 +171,7 @@
   <button type="button" data-act="highlight" class="sel-primary">Highlight</button>
   <button type="button" data-act="note">Add note</button>
   <button type="button" data-act="ask">Ask</button>
+  <button type="button" data-act="quiz">Question me</button>
   <button type="button" data-act="remove" hidden>Remove</button>
 </div>
 
