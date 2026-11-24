@@ -42,6 +42,8 @@ In the Discuss tab the companion starts the conversation. The instructions are `
 - The text is classified once as literature, academic or general, which decides the kinds of topic on offer. The student can change it.
 - One button starts a conversation about the open chapter. The companion says where to look ("Read the first paragraph again"), gives a view of its own about that passage, and asks the student to take it further. It is always about a paragraph the student has already read, with a button that goes straight there.
 - The student replies on the card. The companion responds to what they said, adds something of its own, and hands it back, moving from the passage as a whole towards a sentence and then a word. It shares views but does not deliver a complete reading.
+- Openings and replies are told to be specific to the passage (naming its people, claims and examples, with short quotations) and to deal with matters of substance, not single words.
+- Without an API key, the bundled sample uses hand-written openings from `lib/sample-openings.js`. Uploaded texts get labelled placeholders that have not read the text.
 - Under Options the student can set what to talk about, how far to be pushed, where to draw from, and a topic.
 - Conversations the student has replied to are included in the PDF export.
 

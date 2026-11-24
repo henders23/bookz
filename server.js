@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
+import { SAMPLE_ID, SAMPLE_OPENINGS } from './lib/sample-openings.js';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import {
   COMPANION_INSTRUCTIONS, CLASSIFY_INSTRUCTIONS, QUESTION_INSTRUCTIONS, DISCUSS_INSTRUCTIONS, KINDS, KIND_LENSES,
@@ -48,7 +49,7 @@ const DEMO_TALK = [
   (ch) => `That is a fair way in. What I keep coming back to is how the first paragraph sets it up, (ch ${ch}, ¶1): the tone there is firmer than what follows. Does your reading survive that, or does it need adjusting?`,
   () => 'I read it a little differently. To me the writer sounds less certain than the words claim, and the hedging gives it away. Which phrase would you point to, for or against that?',
   (ch) => `I think you are onto something. Try it against the second paragraph, (ch ${ch}, ¶2), where the same idea returns in other words. I am not sure it means the same thing there.`,
-  () => 'Let us go closer. There is one word in that sentence I would not have expected. See if you can spot which one I mean, and tell me what it does to your reading.',
+  () => 'Let us test that. If you are right, the end of this paragraph ought to follow from its beginning, and I am not sure it does. How would you get from one to the other?',
 ];
 
 app.post('/api/chat', async (req, res) => {
@@ -151,7 +152,7 @@ const QuestionSet = z.object({
 const DEMO_QUESTIONS = [
   ['What strikes me here is the voice. It sounds as if it is addressed to one particular person, and I am not sure that person is the reader. I half suspect the writer is talking to themselves.', 'Who do you hear being spoken to, and what in the wording makes you think so?'],
   ['I read this paragraph as more of an argument than it first looks. It seems to be answering an objection that is never stated, which makes me wonder what the writer is worried about.', 'What do you think the unspoken objection is, and where do you see it being answered?'],
-  ['It surprises me how much weight this passage puts on a few plain words that keep returning. I think the repetition is doing the persuading here, more than any reason given.', 'Which repeated word would you pick out, and does it mean the same thing each time?'],
+  ['It surprises me how little this passage offers in support of what it says. It seems to rely on the reader already agreeing, and I am not sure I do.', 'What would you want the writer to show before you accepted this, and is any of it there?'],
   ['I am not convinced this passage is as settled as it sounds. The confident opening and the way it ends do not quite match, to my ear.', 'Where would you say the tone shifts, and what do you make of the change?'],
 ];
 const ORDINALS = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'];
@@ -162,7 +163,7 @@ const demoWhere = (doc, ch, p, open) => {
 };
 
 app.post('/api/questions', async (req, res) => {
-  const { doc, kind, lens, level, chapters, paragraph, focus, avoid, exclude, position } = req.body || {};
+  const { doc, docId, kind, lens, level, chapters, paragraph, focus, avoid, exclude, position } = req.body || {};
   const open = Number.isInteger(position?.ch) ? position.ch : -1;
   if (!validDoc(doc)) return res.status(400).json({ error: 'No text was sent.' });
   const hasPara = (c, p) => Number.isInteger(c) && Number.isInteger(p) && Boolean(doc.chapters[c]?.paragraphs[p]);
@@ -173,13 +174,22 @@ app.post('/api/questions', async (req, res) => {
   const lenses = KIND_LENSES[KINDS.includes(kind) ? kind : 'general'];
 
   if (!live) {
-    const turn = Array.isArray(avoid) ? avoid.length : 0;
+    const asked = Array.isArray(avoid) ? avoid : [];
+    // The bundled sample has hand-written openings, so it shows what a real one looks like without a key.
+    if (docId === SAMPLE_ID) {
+      const targets = para ? [para.ch] : [...read].reverse();
+      const pool = targets.flatMap((ch) => (SAMPLE_OPENINGS[ch] || []).map((o) => ({ ...o, ch })));
+      const fits = pool.filter((o) => !asked.includes(o.question) && (!para || o.p === para.p) && hasPara(o.ch, o.p));
+      const pick = fits.find((o) => o.lens === lens) || fits.find((o) => !(Array.isArray(exclude) ? exclude : []).includes(o.lens)) || fits[0];
+      if (pick) return res.json({ questions: [pick], demo: true });
+    }
+    const turn = asked.length;
     const questions = [DEMO_QUESTIONS[turn % DEMO_QUESTIONS.length]].map(([notice, question], i) => {
       const ch = para ? para.ch : read[read.length - 1];
       const count = doc.chapters[ch].paragraphs.length;
       const p = para ? para.p : Math.floor(((i + 1) * count) / 4 + (avoid?.length || 0)) % count;
       const pool2 = lenses.filter((l) => !(Array.isArray(exclude) ? exclude : []).includes(l));
-      return { where: demoWhere(doc, ch, p, open), notice, question, ch, p, lens: lenses.includes(lens) ? lens : (pool2.length ? pool2 : lenses)[i % (pool2.length || lenses.length)] };
+      return { generic: true, where: demoWhere(doc, ch, p, open), notice, question, ch, p, lens: lenses.includes(lens) ? lens : (pool2.length ? pool2 : lenses)[i % (pool2.length || lenses.length)] };
     });
     return res.json({ questions, demo: true });
   }
@@ -187,8 +197,8 @@ app.post('/api/questions', async (req, res) => {
   try {
     const response = await client.messages.parse({
       model: MODEL,
-      max_tokens: 4000,
-      output_config: { effort: 'low', format: zodOutputFormat(QuestionSet) },
+      max_tokens: 6000,
+      output_config: { effort: 'medium', format: zodOutputFormat(QuestionSet) },
       system: [
         { type: 'text', text: buildTextBlock(doc, para ? [para.ch] : [...read].reverse()), cache_control: { type: 'ephemeral' } },
         { type: 'text', text: QUESTION_INSTRUCTIONS },

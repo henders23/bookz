@@ -672,7 +672,8 @@ function renderQuestionSetup() {
   chipRow($('lenses'), [['mix', 'A mix'], ...lenses.map((l) => [l, lensLabel(l)])], qPrefs.lens, (v) => { qPrefs.lens = v; renderQuestionSetup(); saveState(); });
   chipRow($('levels'), LEVELS.map((l) => [l, LEVEL_LABELS[l]]), qPrefs.level, (v) => { qPrefs.level = v; renderQuestionSetup(); saveState(); });
   $('q-go').disabled = qBusy;
-  $('q-go').textContent = (questions.length ? 'Start another conversation about ' : 'Start a conversation about ') + (qPrefs.scope === 'read' ? 'what I have read' : 'this chapter');
+  $('q-go').textContent = (questions.length ? 'New conversation about ' : 'Start a conversation about ') + (qPrefs.scope === 'read' ? 'what I have read' : 'this chapter');
+  $('q-go').className = questions.length ? 'btn btn-outline' : 'btn btn-solid';
   $('q-options').hidden = !optionsOpen;
   $('q-options-toggle').setAttribute('aria-expanded', String(optionsOpen));
   $('q-options-toggle').textContent = optionsOpen ? 'Hide options' : 'Options';
@@ -699,6 +700,7 @@ async function askQuestions(opts = {}) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         doc: docPayload(),
+        docId: doc.id,
         kind: kind || 'general',
         lens,
         level,
@@ -770,9 +772,18 @@ async function answerQuestion(q, text) {
 // Where to look, what to notice, then the question. Older saved questions only have the last part.
 const fullQuestion = (q) => [q.where, q.notice, q.question].filter(Boolean).join(' ');
 
-function questionCard(q) {
-  const para = doc.chapters[q.ch]?.paragraphs[q.p] || '';
-  const count = (q.messages || []).length;
+// One conversation. The current one is always open; earlier ones fold down to a single line.
+function talkNode(q, current) {
+  const expanded = current || q.open;
+  if (!expanded) {
+    return el('button', {
+      type: 'button', class: 'talk-row', 'data-id': q.id, 'aria-expanded': 'false',
+      onclick: () => { q.open = true; renderQuestions(q.id); saveState(); },
+    },
+      el('span', { class: 'chev', 'aria-hidden': 'true', text: '▸' }),
+      el('span', { class: 't-title', text: q.question }),
+    );
+  }
   const input = el('input', { type: 'text', autocomplete: 'off', placeholder: 'What do you think?', 'aria-label': 'Your reply' });
   input.value = q.draft || '';
   input.addEventListener('input', () => { q.draft = input.value; });
@@ -787,52 +798,39 @@ function questionCard(q) {
         renderNotes();
         saveState();
       } }),
-      el('button', { type: 'button', text: 'Remove', onclick: () => { questions = questions.filter((x) => x !== q); renderQuestions(); saveState(); } }),
+      current ? null : el('button', { type: 'button', text: 'Fold away', onclick: () => { q.open = false; renderQuestions(); saveState(); } }),
+      el('button', { type: 'button', text: 'Remove', onclick: () => { questions = questions.filter((x) => x !== q); renderQuestionSetup(); renderQuestions(); saveState(); } }),
     ),
   );
-  return el('div', { class: 'q-card', 'data-id': q.id },
-    el('span', { class: 'q-tag', text: `${lensLabel(q.lens)}${q.demo ? ' · demo' : ''}` }),
-    el('p', { class: 'q-lead' }, ...renderReply(q.where || `Look at ${placeLabel(q.ch, q.p)}.`)),
-    el('div', { class: 'q-where' },
-      el('strong', { text: placeLabel(q.ch, q.p) }),
-      el('span', { text: `“${clip(para.replace(/\s+/g, ' '), 90)}”` }),
-    ),
-    q.notice ? el('p', { class: 'q-notice' }, ...renderReply(q.notice)) : null,
-    el('p', { class: 'q-text' }, ...renderReply(q.question)),
-    el('div', { class: 'q-buttons' },
-      el('button', { type: 'button', class: 'btn btn-small go', text: 'Go to passage', onclick: () => goTo(q.ch, q.p) }),
-      el('button', {
-        type: 'button', class: 'btn btn-small', 'aria-expanded': String(Boolean(q.open)),
-        text: q.open ? 'Close' : count ? `Continue · ${count}` : 'Reply',
-        onclick: () => { q.open = !q.open; renderQuestions(q.open ? q.id : null); saveState(); },
-      }),
+  return el('article', { class: 'talk', 'data-id': q.id },
+    el('div', { class: 'talk-head' },
+      el('button', { type: 'button', class: 'ref', text: `${placeLabel(q.ch, q.p)} →`, 'aria-label': `Go to ${placeLabel(q.ch, q.p)}`, onclick: () => goTo(q.ch, q.p) }),
       menu,
     ),
-    q.open
-      ? el('div', { class: 'q-answer' },
-          ...(q.messages || []).map(messageNode),
-          answering.has(q.id) ? el('div', { class: 'msg bot pending', text: 'Thinking…' }) : null,
-          el('form', { class: 'composer-row', onsubmit: (e) => { e.preventDefault(); answerQuestion(q, input.value.trim()); } },
-            input,
-            el('button', { type: 'submit', class: 'btn btn-solid btn-send', 'aria-label': 'Send reply', text: '↑' }),
-          ),
-        )
-      : null,
+    el('p', { class: 'talk-say' }, ...renderReply([q.where, q.notice].filter(Boolean).join(' '))),
+    el('p', { class: 'talk-ask' }, ...renderReply(q.question)),
+    q.generic ? el('p', { class: 'talk-note', text: 'This is a placeholder that has not read your text. Connect the API key for a conversation about what it actually says.' }) : null,
+    ...(q.messages || []).map((m) =>
+      m.role === 'user'
+        ? el('div', { class: 'msg user', text: m.text })
+        : el('div', { class: `msg bot${m.error ? ' error' : ''}` }, ...(m.error ? [m.text] : renderReply(m.text))),
+    ),
+    answering.has(q.id) ? el('div', { class: 'msg bot pending', text: 'Thinking…' }) : null,
+    el('form', { class: 'composer-row talk-reply', onsubmit: (e) => { e.preventDefault(); answerQuestion(q, input.value.trim()); } },
+      input,
+      el('button', { type: 'submit', class: 'btn btn-solid btn-send', 'aria-label': 'Send reply', text: '↑' }),
+    ),
   );
 }
 
-// After a set of questions, the student steers the next set by reacting to this one.
-function followUps(latest) {
-  const first = latest[0];
-  const used = [...new Set(latest.map((q) => q.lens))];
-  const base = { level: first.level, lens: first.asked || 'mix', paragraph: first.paragraph || undefined };
-  const chip = (text, opts) => el('button', { type: 'button', class: 'chip', text, disabled: qBusy, onclick: () => askQuestions(opts) });
+// Under the current conversation: quiet ways to start a different one.
+function followUps(q) {
+  const base = { level: q.level, paragraph: q.paragraph || undefined };
+  const link = (text, opts) => el('button', { type: 'button', class: 'linkish', text, disabled: qBusy, onclick: () => askQuestions(opts) });
   return el('div', { class: 'q-follow' },
-    el('span', { class: 'q-tag', text: 'Start another' }),
-    el('div', { class: 'chips' },
-      ...used.slice(0, 3).map((l) => chip(`More on ${lensLabel(l).toLowerCase()}`, { ...base, lens: l })),
-      chip('Something else', { ...base, lens: 'mix', exclude: used }),
-    ),
+    el('span', { text: 'Talk about something else:' }),
+    link(`more on ${lensLabel(q.lens).toLowerCase()}`, { ...base, lens: q.lens }),
+    link('a different angle', { ...base, lens: 'mix', exclude: [q.lens] }),
   );
 }
 
@@ -842,16 +840,14 @@ function renderQuestions(focusId) {
     box.replaceChildren(el('p', { class: 'empty', text: 'I will pick a passage from the chapter you are reading, tell you what I notice in it, and ask what you make of it. Then we talk.' }));
     return;
   }
-  const batch = questions[0].batch;
-  const latest = batch ? questions.filter((q) => q.batch === batch) : [];
-  const earlier = questions.filter((q) => !latest.includes(q));
+  const [current, ...earlier] = questions;
   box.replaceChildren(
-    ...latest.map(questionCard),
-    latest.length ? followUps(latest) : null,
+    talkNode(current, true),
+    followUps(current),
     earlier.length ? el('div', { class: 'group-title', text: 'Earlier conversations' }) : null,
-    ...earlier.map(questionCard),
+    ...earlier.map((q) => talkNode(q, false)),
   );
-  if (focusId) box.querySelector(`.q-card[data-id="${focusId}"] .q-answer input`)?.focus();
+  if (focusId) box.querySelector(`.talk[data-id="${focusId}"] .talk-reply input`)?.focus();
 }
 
 // ---------- export ----------
