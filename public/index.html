@@ -88,35 +88,14 @@
       <article id="text" class="text"></article>
     </main>
 
-    <aside class="side" aria-label="Companion and notes">
+    <aside class="side" id="side" aria-label="Discuss and notes">
+      <button type="button" id="sheet-handle" class="sheet-handle" aria-expanded="false" aria-controls="side"><span class="grip" aria-hidden="true"></span><span id="sheet-label">Discuss and notes</span></button>
       <div class="tabs" role="tablist">
-        <button type="button" role="tab" id="tab-chat" aria-selected="true" aria-controls="panel-chat">Companion</button>
-        <button type="button" role="tab" id="tab-questions" aria-selected="false" aria-controls="panel-questions">Discuss</button>
+        <button type="button" role="tab" id="tab-questions" aria-selected="true" aria-controls="panel-questions">Discuss</button>
         <button type="button" role="tab" id="tab-notes" aria-selected="false" aria-controls="panel-notes">Notes · <span id="note-count">0</span></button>
       </div>
 
-      <section id="panel-chat" class="panel" role="tabpanel" aria-labelledby="tab-chat">
-        <p class="rule">Hints and questions only. No answers. <span id="demo-tag" hidden>Demo replies until the API key is connected.</span></p>
-        <div class="threads-head">
-          <span>Topics</span>
-          <button type="button" id="new-thread" class="btn btn-small">New topic</button>
-        </div>
-        <div id="threads" class="threads"></div>
-        <form id="ask-form" class="composer">
-          <div id="quote-chip" class="quote-chip" hidden>
-            <span id="quote-text"></span>
-            <button type="button" id="quote-clear" aria-label="Remove selection">×</button>
-          </div>
-          <div class="composer-row">
-            <label class="sr-only" for="ask">Ask about the text, a theme or your notes</label>
-            <input id="ask" type="text" autocomplete="off" placeholder="Ask about the text, a theme or your notes">
-            <button type="submit" class="btn btn-solid btn-send" aria-label="Send">↑</button>
-          </div>
-        </form>
-      </section>
-
-      <section id="panel-questions" class="panel panel-scroll" role="tabpanel" aria-labelledby="tab-questions" hidden>
-        <p class="rule">I say what I notice, you take it further. <span id="demo-tag-q" hidden>Demo replies until the API key is connected.</span></p>
+      <section id="panel-questions" class="panel" role="tabpanel" aria-labelledby="tab-questions">
         <div class="q-setup">
           <button type="button" id="q-go" class="btn btn-solid">Start a conversation about this chapter</button>
           <button type="button" id="q-options-toggle" class="linkish q-toggle" aria-expanded="false" aria-controls="q-options">Options</button>
@@ -150,6 +129,21 @@
           <p id="q-status" class="status" role="status"></p>
         </div>
         <div id="questions" class="q-list"></div>
+        <form id="ask-form" class="composer">
+          <div id="quote-chip" class="quote-chip" hidden>
+            <span id="quote-text"></span>
+            <button type="button" id="quote-clear" aria-label="Remove selection">×</button>
+          </div>
+          <div class="composer-row">
+            <label class="sr-only" for="ask">Ask or reply</label>
+            <textarea id="ask" rows="1" autocomplete="off" placeholder="Ask about the text, a theme or your notes"></textarea>
+            <button type="submit" class="btn btn-solid btn-send" aria-label="Send">↑</button>
+          </div>
+          <div class="composer-foot">
+            <button type="button" id="new-topic" class="linkish" hidden>New topic</button>
+            <span id="demo-tag-q" hidden>Demo replies until the API key is connected.</span>
+          </div>
+        </form>
       </section>
 
       <section id="panel-notes" class="panel" role="tabpanel" aria-labelledby="tab-notes" hidden>
@@ -171,7 +165,7 @@
   <button type="button" data-act="highlight" class="sel-primary">Highlight</button>
   <button type="button" data-act="note">Add note</button>
   <button type="button" data-act="ask">Ask</button>
-  <button type="button" data-act="quiz">Discuss</button>
+  <button type="button" data-act="quiz">Discuss this</button>
   <button type="button" data-act="remove" hidden>Remove</button>
 </div>
 

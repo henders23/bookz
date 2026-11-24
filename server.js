@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { SAMPLE_ID, SAMPLE_OPENINGS } from './lib/sample-openings.js';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import {
-  COMPANION_INSTRUCTIONS, CLASSIFY_INSTRUCTIONS, QUESTION_INSTRUCTIONS, DISCUSS_INSTRUCTIONS, KINDS, KIND_LENSES,
+  CLASSIFY_INSTRUCTIONS, QUESTION_INSTRUCTIONS, DISCUSS_INSTRUCTIONS, KINDS, KIND_LENSES,
   buildTextBlock, buildStudentContext, buildQuestionRequest,
 } from './lib/prompt.js';
 
@@ -38,13 +38,6 @@ function validDoc(doc) {
   );
 }
 
-const DEMO_HINTS = [
-  (ch) => `Read the first paragraph again, slowly: (ch ${ch}, ¶1). One word in it carries more weight than the rest. Which would you pick?`,
-  (ch) => `Try putting your last highlight next to the second paragraph, (ch ${ch}, ¶2). Something repeats between them, and it is worth seeing what changes the second time.`,
-  () => 'Keep an eye on who is being spoken to here. It is easy to miss, and it does not stay the same all the way through the chapter.',
-  (ch) => `That idea shows up earlier than you might think. Look back through (ch ${ch}) for the first place it appears, and mark it.`,
-];
-
 const DEMO_TALK = [
   (ch) => `That is a fair way in. What I keep coming back to is how the first paragraph sets it up, (ch ${ch}, ¶1): the tone there is firmer than what follows. Does your reading survive that, or does it need adjusting?`,
   () => 'I read it a little differently. To me the writer sounds less certain than the words claim, and the hedging gives it away. Which phrase would you point to, for or against that?',
@@ -53,8 +46,7 @@ const DEMO_TALK = [
 ];
 
 app.post('/api/chat', async (req, res) => {
-  const { doc, position, quote, marks, messages, mode } = req.body || {};
-  const discuss = mode === 'discuss'; // a conversation the companion opened, as opposed to hints on request
+  const { doc, position, quote, marks, messages } = req.body || {};
   if (!validDoc(doc)) return res.status(400).json({ error: 'No text was sent.' });
   if (!Array.isArray(messages) || !messages.length || messages.at(-1).role !== 'user') {
     return res.status(400).json({ error: 'No question was sent.' });
@@ -65,8 +57,7 @@ app.post('/api/chat', async (req, res) => {
 
   if (!live) {
     const turn = history.filter((m) => m.role === 'user').length;
-    const pool = discuss ? DEMO_TALK : DEMO_HINTS;
-    const hint = pool[(turn - 1) % pool.length]((position?.ch ?? 0) + 1);
+    const hint = DEMO_TALK[(turn - 1) % DEMO_TALK.length]((position?.ch ?? 0) + 1);
     return res.json({ text: hint, demo: true });
   }
 
@@ -88,7 +79,7 @@ app.post('/api/chat', async (req, res) => {
       // The text comes first and is cached, so chat and question requests share one cached copy.
       system: [
         { type: 'text', text: buildTextBlock(doc, focus), cache_control: { type: 'ephemeral' } },
-        { type: 'text', text: discuss ? DISCUSS_INSTRUCTIONS : COMPANION_INSTRUCTIONS },
+        { type: 'text', text: DISCUSS_INSTRUCTIONS },
       ],
       messages: apiMessages,
     });
@@ -163,7 +154,8 @@ const demoWhere = (doc, ch, p, open) => {
 };
 
 app.post('/api/questions', async (req, res) => {
-  const { doc, docId, kind, lens, level, chapters, paragraph, focus, avoid, exclude, position } = req.body || {};
+  const { doc, docId, kind, lens, level, chapters, paragraph, focus, avoid, exclude, position, marks } = req.body || {};
+  const marked = (Array.isArray(marks) ? marks : []).filter((m) => m && Number.isInteger(m.ch) && Number.isInteger(m.p));
   const open = Number.isInteger(position?.ch) ? position.ch : -1;
   if (!validDoc(doc)) return res.status(400).json({ error: 'No text was sent.' });
   const hasPara = (c, p) => Number.isInteger(c) && Number.isInteger(p) && Boolean(doc.chapters[c]?.paragraphs[p]);
@@ -180,7 +172,7 @@ app.post('/api/questions', async (req, res) => {
       const targets = para ? [para.ch] : [...read].reverse();
       const pool = targets.flatMap((ch) => (SAMPLE_OPENINGS[ch] || []).map((o) => ({ ...o, ch })));
       const fits = pool.filter((o) => !asked.includes(o.question) && (!para || o.p === para.p) && hasPara(o.ch, o.p));
-      const pick = fits.find((o) => o.lens === lens) || fits.find((o) => !(Array.isArray(exclude) ? exclude : []).includes(o.lens)) || fits[0];
+      const pick = fits.find((o) => marked.some((m) => m.ch === o.ch && m.p === o.p)) || fits.find((o) => o.lens === lens) || fits.find((o) => !(Array.isArray(exclude) ? exclude : []).includes(o.lens)) || fits[0];
       if (pick) return res.json({ questions: [pick], demo: true });
     }
     const turn = asked.length;
@@ -203,7 +195,7 @@ app.post('/api/questions', async (req, res) => {
         { type: 'text', text: buildTextBlock(doc, para ? [para.ch] : [...read].reverse()), cache_control: { type: 'ephemeral' } },
         { type: 'text', text: QUESTION_INSTRUCTIONS },
       ],
-      messages: [{ role: 'user', content: buildQuestionRequest({ doc, kind, lens, level, chapters: read, paragraph: para, focus, avoid, exclude: Array.isArray(exclude) ? exclude : [], open }) }],
+      messages: [{ role: 'user', content: buildQuestionRequest({ doc, kind, lens, level, chapters: read, paragraph: para, focus, avoid, exclude: Array.isArray(exclude) ? exclude : [], open, marks: marked }) }],
     });
     // The model writes 1-based numbers, as shown in the text. Drop anything outside what the student has read.
     const questions = (response.parsed_output?.questions || [])

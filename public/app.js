@@ -52,7 +52,7 @@ function loadState(id) {
 function saveState() {
   if (!doc) return;
   try {
-    localStorage.setItem(`bookz:state:${doc.id}`, JSON.stringify({ ch: pos.ch, marks, threads, activeThread, kind, visited, questions, qPrefs }));
+    localStorage.setItem(`bookz:state:${doc.id}`, JSON.stringify({ ch: pos.ch, marks, kind, visited, questions, qPrefs }));
   } catch { /* storage full or blocked: state lasts for this visit only */ }
 }
 
@@ -61,15 +61,12 @@ function saveState() {
 let doc = null;
 let pos = { ch: 0 };
 let marks = []; // { id, ch, p, start, end, text, note }  (p == null: a note on the chapter)
-let threads = []; // { id, title, open, showAll, messages: [{ role, text, quote, demo, error }] }
-let activeThread = null;
 let pendingQuote = null; // { ch, p, text }
 let pendingSelection = null; // [{ ch, p, start, end, text }]
 let selectedMark = null;
-let busy = false;
 let kind = null; // 'literature' | 'academic' | 'general', set automatically and changeable
 let visited = []; // chapters the student has opened; questions only draw on these
-let questions = []; // { id, question, ch, p, lens, level, demo, threadId }
+let questions = []; // conversations, newest first: { id, started: 'companion' | 'student', ch, p, where, notice, question, lens, messages }
 let qPrefs = { lens: 'mix', level: 'notice', scope: 'chapter' };
 let qBusy = false;
 let barShownAt = 0;
@@ -150,12 +147,18 @@ function openDoc(d) {
   const saved = loadState(d.id);
   pos = { ch: Math.min(saved.ch || 0, d.chapters.length - 1) };
   marks = saved.marks || [];
-  threads = saved.threads || [];
-  activeThread = saved.activeThread || null;
   pendingQuote = null;
   kind = saved.kind || null;
   visited = saved.visited || [];
   questions = saved.questions || [];
+  // Topics from the old Companion tab become conversations, so nothing the student wrote is lost.
+  for (const t of saved.threads || []) {
+    const msgs = (t.messages || []).filter((m) => !m.error);
+    if (!msgs.some((m) => m.role === 'user')) continue;
+    const lead = msgs[0].role === 'assistant' ? msgs.shift() : null;
+    questions.push({ id: uid(), started: lead ? 'companion' : 'student', ch: msgs[0].quote?.ch ?? pos.ch, p: msgs[0].quote?.p ?? null, notice: lead ? lead.text : '', question: lead ? '' : t.title || clip(msgs[0].text, 90), messages: msgs });
+  }
+  startFresh = false;
   qPrefs = { lens: 'mix', level: 'notice', scope: 'chapter', ...saved.qPrefs };
   $('q-status').textContent = '';
   if (!kind) classify(d);
@@ -166,11 +169,13 @@ function openDoc(d) {
   $('start').hidden = true;
   $('reader').hidden = false;
   renderChapter();
-  renderThreads();
   renderNotes();
   renderQuote();
   renderQuestionSetup();
   renderQuestions();
+  renderComposer();
+  showTab('questions', false);
+  setSheet(false);
 }
 
 function placeLabel(ch, p) {
@@ -241,6 +246,7 @@ function renderChapter(flashP) {
 
 function goTo(ch, p) {
   if (!doc.chapters[ch]) return;
+  if (p != null && onPhone()) setSheet(false); // show the passage; the handle brings the conversation back
   pos.ch = ch;
   renderChapter(p);
   saveState();
@@ -380,7 +386,7 @@ $('sel-bar').addEventListener('click', (e) => {
       pendingQuote = { ch: src.ch, p: src.p, text: selection ? selection.map((s) => s.text).join(' ') : src.text };
       window.getSelection().removeAllRanges();
       renderQuote();
-      showTab('chat');
+      showTab('questions');
       $('ask').focus();
     }
   }
@@ -400,13 +406,24 @@ $('sel-bar').addEventListener('click', (e) => {
 
 // ---------- tabs ----------
 
-function showTab(name) {
-  for (const tab of ['chat', 'questions', 'notes']) {
+const onPhone = () => window.matchMedia('(max-width: 900px)').matches;
+
+// On a phone the side panel is a sheet that slides up over the text and tucks away again.
+function setSheet(open) {
+  $('side').classList.toggle('open', open);
+  $('sheet-handle').setAttribute('aria-expanded', String(open));
+  $('sheet-label').textContent = open ? 'Back to the text' : 'Discuss and notes';
+}
+$('sheet-handle').addEventListener('click', () => setSheet(!$('side').classList.contains('open')));
+
+function showTab(name, reveal = true) {
+  for (const tab of ['questions', 'notes']) {
     $(`tab-${tab}`).setAttribute('aria-selected', tab === name);
     $(`panel-${tab}`).hidden = tab !== name;
   }
+  if (reveal && onPhone()) setSheet(true);
 }
-for (const tab of ['chat', 'questions', 'notes']) $(`tab-${tab}`).addEventListener('click', () => showTab(tab));
+for (const tab of ['questions', 'notes']) $(`tab-${tab}`).addEventListener('click', () => showTab(tab));
 
 // ---------- notes ----------
 
@@ -442,7 +459,7 @@ function renderNotes() {
           m.text ? el('button', { type: 'button', class: 'btn btn-small', text: 'Ask', onclick: () => {
             pendingQuote = { ch: m.ch, p: m.p, text: m.text };
             renderQuote();
-            showTab('chat');
+            showTab('questions');
             $('ask').focus();
           } }) : null,
           el('button', { type: 'button', class: 'btn btn-small', text: 'Remove', onclick: () => {
@@ -466,7 +483,9 @@ $('note-form').addEventListener('submit', (e) => {
   saveState();
 });
 
-// ---------- companion ----------
+// ---------- conversations ----------
+// One place to talk about the text. The companion can open ("Start a conversation") or the
+// student can ("Ask..."). Either way it is the same conversation, held by the same rules.
 
 const REF = /\(?\bch\.?\s*(\d+)(?:\s*,\s*¶\s*(\d+))?\)?/g;
 
@@ -485,141 +504,6 @@ function renderReply(text) {
   return out;
 }
 
-function messageNode(m) {
-  if (m.role === 'user') {
-    return el('div', { class: 'msg user' }, m.quote ? el('span', { class: 'q', text: `“${clip(m.quote.text, 120)}”` }) : null, m.text);
-  }
-  return el('div', { class: `msg bot${m.error ? ' error' : ''}` },
-    el('span', { class: 'who', text: m.demo ? 'Companion · demo reply' : 'Companion' }),
-    ...(m.error ? [m.text] : renderReply(m.text)),
-  );
-}
-
-const FOLD_AFTER = 6; // longer topics fold their earlier messages
-const KEEP_VISIBLE = 4;
-
-function renderThreads() {
-  const box = $('threads');
-  if (!threads.length) {
-    box.replaceChildren(el('p', { class: 'empty', text: 'Ask about a passage, a theme, or a connection you have noticed.' }));
-    return;
-  }
-  box.replaceChildren(
-    ...threads.map((t) => {
-      const isActive = t.id === activeThread;
-      const fold = t.messages.length > FOLD_AFTER && !t.showAll;
-      const shown = fold ? t.messages.slice(-KEEP_VISIBLE) : t.messages;
-      const hiddenCount = t.messages.length - shown.length;
-      const body = el('div', { class: 'thread-body', id: `thread-${t.id}` },
-        t.messages.length > FOLD_AFTER
-          ? el('button', {
-              type: 'button', class: 'btn btn-small fold',
-              text: fold ? `Show ${hiddenCount} earlier messages` : 'Hide earlier messages',
-              onclick: () => { t.showAll = !t.showAll; renderThreads(); saveState(); },
-            })
-          : null,
-        ...shown.map(messageNode),
-        busy && isActive ? el('div', { class: 'msg bot pending', text: 'Thinking of a hint…' }) : null,
-      );
-      const head = el('button', {
-        type: 'button', class: 'thread-head', 'aria-expanded': String(Boolean(t.open)), 'aria-controls': `thread-${t.id}`,
-        onclick: () => {
-          t.open = !t.open;
-          if (t.open) activeThread = t.id;
-          renderThreads();
-          saveState();
-        },
-      },
-        el('span', { class: 'chev', 'aria-hidden': 'true', text: '▸' }),
-        el('span', { class: 't-title', text: t.title }),
-        el('span', { class: 't-count', text: `${t.messages.length}` }),
-      );
-      return el('section', { class: `thread${t.open ? ' open' : ''}${isActive ? ' active' : ''}` }, head, body);
-    }),
-  );
-  const open = box.querySelector('.thread.active.open .thread-body');
-  if (open) open.lastElementChild?.scrollIntoView({ block: 'nearest' });
-}
-
-function renderQuote() {
-  $('quote-chip').hidden = !pendingQuote;
-  if (pendingQuote) $('quote-text').textContent = `“${pendingQuote.text}”`;
-}
-$('quote-clear').addEventListener('click', () => { pendingQuote = null; renderQuote(); });
-
-$('new-thread').addEventListener('click', () => {
-  for (const t of threads) t.open = false;
-  activeThread = null;
-  renderThreads();
-  saveState();
-  $('ask').focus();
-});
-
-function apiText(m) {
-  if (m.role !== 'user' || !m.quote) return m.text;
-  return `[Selection at (ch ${m.quote.ch + 1}, ¶${m.quote.p + 1}): "${clip(m.quote.text, 600)}"]\n${m.text}`;
-}
-
-$('ask-form').addEventListener('submit', (e) => {
-  e.preventDefault();
-  const text = $('ask').value.trim();
-  if (text) sendMessage(text);
-});
-
-function apiMessages(thread) {
-  const list = thread.messages.filter((m) => !m.error);
-  // A topic opened from a question starts with the companion's question. The API needs the student
-  // to speak first, so that question travels as a note on their first message instead.
-  const lead = list[0]?.role === 'assistant' ? list.shift() : null;
-  return list.map((m, i) => ({
-    role: m.role,
-    text: (lead && i === 0 ? `[The student is answering this question you set: "${lead.text}"]\n` : '') + apiText(m),
-  }));
-}
-
-async function sendMessage(text) {
-  if (busy) return;
-  let thread = threads.find((t) => t.id === activeThread && t.open);
-  if (!thread) {
-    for (const t of threads) t.open = false; // starting a new topic collapses the others
-    thread = { id: uid(), title: clip(text, 48), open: true, showAll: false, messages: [] };
-    threads.push(thread);
-    activeThread = thread.id;
-  }
-  const quote = pendingQuote;
-  thread.messages.push({ role: 'user', text, quote });
-  $('ask').value = '';
-  pendingQuote = null;
-  renderQuote();
-  busy = true;
-  renderThreads();
-  saveState();
-
-  try {
-    const res = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        doc: { title: doc.title, author: doc.author, chapters: doc.chapters },
-        position: pos,
-        quote,
-        marks: marks.map(({ ch, p, text: t, note }) => ({ ch, p, text: t, note })),
-        messages: apiMessages(thread),
-      }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || 'The companion could not answer. Try again.');
-    thread.messages.push({ role: 'assistant', text: data.text, demo: Boolean(data.demo) });
-  } catch (error) {
-    thread.messages.push({ role: 'assistant', text: error.message || 'The companion could not answer. Try again.', error: true });
-  }
-  busy = false;
-  renderThreads();
-  saveState();
-}
-
-// ---------- questions ----------
-
 const KIND_LENSES = {
   literature: ['themes', 'examples', 'connections', 'close', 'character', 'imagery', 'structure'],
   academic: ['themes', 'examples', 'connections', 'close', 'argument', 'evidence', 'terms', 'assumptions'],
@@ -634,8 +518,10 @@ const LEVELS = ['notice', 'interpret', 'connect'];
 const LEVEL_LABELS = { notice: 'Notice', interpret: 'Interpret', connect: 'Connect' };
 const lensLabel = (lens) => (lens === 'themes' && kind === 'academic' ? 'Main ideas' : LENS_LABELS[lens] || 'Themes');
 const docPayload = () => ({ title: doc.title, author: doc.author, chapters: doc.chapters });
-const answering = new Set(); // ids of questions waiting for a reply
+const marksPayload = () => marks.map(({ ch, p, text, note }) => ({ ch, p, text, note }));
+const answering = new Set(); // ids of conversations waiting for a reply
 let optionsOpen = false;
+let startFresh = false; // the next message from the student starts a new conversation
 
 async function classify(d) {
   try {
@@ -663,7 +549,6 @@ function chipRow(box, items, current, onPick) {
   );
 }
 
-// The one button asks straight away with the saved options. The options stay folded unless wanted.
 function renderQuestionSetup() {
   const lenses = KIND_LENSES[kind || 'general'];
   if (qPrefs.lens !== 'mix' && !lenses.includes(qPrefs.lens)) qPrefs.lens = 'mix';
@@ -672,7 +557,7 @@ function renderQuestionSetup() {
   chipRow($('lenses'), [['mix', 'A mix'], ...lenses.map((l) => [l, lensLabel(l)])], qPrefs.lens, (v) => { qPrefs.lens = v; renderQuestionSetup(); saveState(); });
   chipRow($('levels'), LEVELS.map((l) => [l, LEVEL_LABELS[l]]), qPrefs.level, (v) => { qPrefs.level = v; renderQuestionSetup(); saveState(); });
   $('q-go').disabled = qBusy;
-  $('q-go').textContent = (questions.length ? 'New conversation about ' : 'Start a conversation about ') + (qPrefs.scope === 'read' ? 'what I have read' : 'this chapter');
+  $('q-go').textContent = (questions.length ? 'Start one for me about ' : 'Start a conversation about ') + (qPrefs.scope === 'read' ? 'what I have read' : 'this chapter');
   $('q-go').className = questions.length ? 'btn btn-outline' : 'btn btn-solid';
   $('q-options').hidden = !optionsOpen;
   $('q-options-toggle').setAttribute('aria-expanded', String(optionsOpen));
@@ -683,7 +568,13 @@ $('q-scope').addEventListener('change', (e) => { qPrefs.scope = e.target.value; 
 $('q-go').addEventListener('click', () => askQuestions());
 $('q-options-toggle').addEventListener('click', () => { optionsOpen = !optionsOpen; renderQuestionSetup(); });
 
-// opts can override the saved options for one request: { lens, level, exclude, paragraph }
+// Conversations the student has replied to are never dropped; unanswered openings are, past a limit.
+function trimConversations() {
+  let spare = 0;
+  questions = questions.filter((q) => (q.messages || []).length || spare++ < 15);
+}
+
+// The companion opens. opts can override the saved options once: { lens, level, exclude, paragraph }
 async function askQuestions(opts = {}) {
   if (qBusy) return;
   qBusy = true;
@@ -708,20 +599,21 @@ async function askQuestions(opts = {}) {
         chapters: qPrefs.scope === 'read' ? visited : [pos.ch],
         position: pos,
         paragraph: opts.paragraph,
+        marks: marksPayload(),
         focus: $('q-focus').value.trim(),
-        avoid: questions.slice(0, 20).map((q) => q.question),
+        avoid: questions.filter((q) => q.started !== 'student').slice(0, 20).map((q) => q.question),
       }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || 'Nothing came back. Try again.');
-    const batch = uid();
-    const fresh = data.questions.map((q, i) => ({
-      ...q, id: uid(), batch, talk: true, open: true, level, asked: lens, paragraph: opts.paragraph || null, demo: Boolean(data.demo), messages: [],
+    const fresh = data.questions.map((q) => ({
+      ...q, id: uid(), started: 'companion', level, asked: lens, paragraph: opts.paragraph || null, demo: Boolean(data.demo), messages: [],
     }));
-    for (const old of questions) old.open = false; // one conversation open at a time
-    questions = [...fresh, ...questions].slice(0, 30);
+    questions = [...fresh, ...questions];
+    trimConversations();
+    startFresh = false;
     status.textContent = '';
-    $('panel-questions').scrollTop = 0;
+    $('questions').scrollTop = 0;
   } catch (error) {
     status.className = 'status error';
     status.textContent = error.message || 'Nothing came back. Try again.';
@@ -729,34 +621,48 @@ async function askQuestions(opts = {}) {
   qBusy = false;
   renderQuestionSetup();
   renderQuestions();
+  renderComposer();
   saveState();
 }
 
-// The student answers on the card. The companion replies under it, by the same hints-only rules as the chat.
-async function answerQuestion(q, text) {
-  if (!text || answering.has(q.id)) return;
-  q.messages = q.messages || [];
-  q.messages.push({ role: 'user', text });
-  q.draft = '';
-  q.open = true;
-  answering.add(q.id);
-  renderQuestions(q.id);
-  saveState();
-  const note = q.talk
+const fullQuestion = (q) => [q.where, q.notice, q.question].filter(Boolean).join(' ');
+
+function apiMessages(q) {
+  const opened = q.started !== 'student' && fullQuestion(q)
     ? `[You opened this conversation about (ch ${q.ch + 1}, ¶${q.p + 1}) by saying: "${fullQuestion(q)}"]\n`
-    : `[The student is answering this prompt you set about (ch ${q.ch + 1}, ¶${q.p + 1}): "${fullQuestion(q)}"]\n`;
+    : '';
+  return q.messages.filter((m) => !m.error).map((m, i) => {
+    const sel = m.quote ? `[Selection at (ch ${m.quote.ch + 1}, ¶${m.quote.p + 1}): "${clip(m.quote.text, 600)}"]\n` : '';
+    return { role: m.role, text: (i === 0 ? opened : '') + sel + m.text };
+  });
+}
+
+// The student speaks: a reply in the current conversation, or the first line of a new one.
+async function sendMessage(text) {
+  if (!text) return;
+  let q = startFresh ? null : questions[0];
+  if (q && answering.has(q.id)) return;
+  const quote = pendingQuote;
+  if (!q) {
+    q = { id: uid(), started: 'student', ch: quote ? quote.ch : pos.ch, p: quote ? quote.p : null, question: clip(text, 90), messages: [] };
+    questions.unshift(q);
+    startFresh = false;
+  }
+  q.messages.push({ role: 'user', text, quote });
+  pendingQuote = null;
+  $('ask').value = '';
+  growComposer();
+  answering.add(q.id);
+  renderQuote();
+  renderQuestionSetup();
+  renderQuestions(true);
+  renderComposer();
+  saveState();
   try {
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        doc: docPayload(),
-        mode: q.talk ? 'discuss' : undefined,
-        position: pos,
-        quote: null,
-        marks: marks.map(({ ch, p, text: t, note: n }) => ({ ch, p, text: t, note: n })),
-        messages: q.messages.filter((m) => !m.error).map((m, i) => ({ role: m.role, text: (i === 0 ? note : '') + m.text })),
-      }),
+      body: JSON.stringify({ doc: docPayload(), position: pos, quote, marks: marksPayload(), messages: apiMessages(q) }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || 'The companion could not answer. Try again.');
@@ -765,32 +671,26 @@ async function answerQuestion(q, text) {
     q.messages.push({ role: 'assistant', text: error.message || 'The companion could not answer. Try again.', error: true });
   }
   answering.delete(q.id);
-  renderQuestions(q.id);
+  renderQuestions(questions[0] === q);
   saveState();
 }
 
-// Where to look, what to notice, then the question. Older saved questions only have the last part.
-const fullQuestion = (q) => [q.where, q.notice, q.question].filter(Boolean).join(' ');
-
-// One conversation. The current one is always open; earlier ones fold down to a single line.
 function talkNode(q, current) {
-  const expanded = current || q.open;
-  if (!expanded) {
+  if (!current) {
+    // Earlier conversations fold to one line. Opening one brings it back to the top to carry on.
     return el('button', {
-      type: 'button', class: 'talk-row', 'data-id': q.id, 'aria-expanded': 'false',
-      onclick: () => { q.open = true; renderQuestions(q.id); saveState(); },
+      type: 'button', class: 'talk-row', 'data-id': q.id,
+      onclick: () => { questions = [q, ...questions.filter((x) => x !== q)]; startFresh = false; renderQuestions(true); renderComposer(); saveState(); },
     },
       el('span', { class: 'chev', 'aria-hidden': 'true', text: '▸' }),
-      el('span', { class: 't-title', text: q.question }),
+      el('span', { class: 't-title', text: q.question || 'Conversation' }),
     );
   }
-  const input = el('input', { type: 'text', autocomplete: 'off', placeholder: 'What do you think?', 'aria-label': 'Your reply' });
-  input.value = q.draft || '';
-  input.addEventListener('input', () => { q.draft = input.value; });
+  const mine = q.started === 'student';
   const menu = el('details', { class: 'q-menu' },
     el('summary', { 'aria-label': 'More' }, '⋯'),
     el('div', { class: 'q-menu-items' },
-      el('button', { type: 'button', text: 'Save to notes', onclick: () => {
+      mine ? null : el('button', { type: 'button', text: 'Save to notes', onclick: () => {
         marks.push({ id: uid(), ch: q.ch, p: q.p, text: '', note: `From a conversation: ${fullQuestion(q)}` });
         menu.open = false;
         $('q-status').className = 'status';
@@ -798,57 +698,95 @@ function talkNode(q, current) {
         renderNotes();
         saveState();
       } }),
-      current ? null : el('button', { type: 'button', text: 'Fold away', onclick: () => { q.open = false; renderQuestions(); saveState(); } }),
-      el('button', { type: 'button', text: 'Remove', onclick: () => { questions = questions.filter((x) => x !== q); renderQuestionSetup(); renderQuestions(); saveState(); } }),
+      el('button', { type: 'button', text: 'Remove', onclick: () => { questions = questions.filter((x) => x !== q); renderQuestionSetup(); renderQuestions(); renderComposer(); saveState(); } }),
     ),
   );
   return el('article', { class: 'talk', 'data-id': q.id },
     el('div', { class: 'talk-head' },
-      el('button', { type: 'button', class: 'ref', text: `${placeLabel(q.ch, q.p)} →`, 'aria-label': `Go to ${placeLabel(q.ch, q.p)}`, onclick: () => goTo(q.ch, q.p) }),
+      q.p != null
+        ? el('button', { type: 'button', class: 'ref', text: `${placeLabel(q.ch, q.p)} →`, 'aria-label': `Go to ${placeLabel(q.ch, q.p)}`, onclick: () => goTo(q.ch, q.p) })
+        : el('span', { class: 'q-tag', text: clip(doc.chapters[q.ch]?.title || '', 40) }),
       menu,
     ),
-    el('p', { class: 'talk-say' }, ...renderReply([q.where, q.notice].filter(Boolean).join(' '))),
-    el('p', { class: 'talk-ask' }, ...renderReply(q.question)),
+    mine ? null : el('p', { class: 'talk-say' }, ...renderReply([q.where, q.notice].filter(Boolean).join(' '))),
+    mine ? null : el('p', { class: 'talk-ask' }, ...renderReply(q.question)),
     q.generic ? el('p', { class: 'talk-note', text: 'This is a placeholder that has not read your text. Connect the API key for a conversation about what it actually says.' }) : null,
     ...(q.messages || []).map((m) =>
       m.role === 'user'
-        ? el('div', { class: 'msg user', text: m.text })
+        ? el('div', { class: 'msg user' }, m.quote ? el('span', { class: 'q', text: `“${clip(m.quote.text, 120)}”` }) : null, m.text)
         : el('div', { class: `msg bot${m.error ? ' error' : ''}` }, ...(m.error ? [m.text] : renderReply(m.text))),
     ),
     answering.has(q.id) ? el('div', { class: 'msg bot pending', text: 'Thinking…' }) : null,
-    el('form', { class: 'composer-row talk-reply', onsubmit: (e) => { e.preventDefault(); answerQuestion(q, input.value.trim()); } },
-      input,
-      el('button', { type: 'submit', class: 'btn btn-solid btn-send', 'aria-label': 'Send reply', text: '↑' }),
-    ),
   );
 }
 
-// Under the current conversation: quiet ways to start a different one.
+// Under a conversation the companion opened: quiet ways to have it open a different one.
 function followUps(q) {
+  if (q.started === 'student' || !q.lens) return null;
   const base = { level: q.level, paragraph: q.paragraph || undefined };
   const link = (text, opts) => el('button', { type: 'button', class: 'linkish', text, disabled: qBusy, onclick: () => askQuestions(opts) });
   return el('div', { class: 'q-follow' },
-    el('span', { text: 'Talk about something else:' }),
+    el('span', { text: 'Start another:' }),
     link(`more on ${lensLabel(q.lens).toLowerCase()}`, { ...base, lens: q.lens }),
     link('a different angle', { ...base, lens: 'mix', exclude: [q.lens] }),
   );
 }
 
-function renderQuestions(focusId) {
+function renderQuestions(toEnd) {
   const box = $('questions');
   if (!questions.length) {
-    box.replaceChildren(el('p', { class: 'empty', text: 'I will pick a passage from the chapter you are reading, tell you what I notice in it, and ask what you make of it. Then we talk.' }));
+    box.replaceChildren(el('p', { class: 'empty', text: 'Ask anything about what you are reading, or let me start: I will pick a passage, say what I notice in it, and ask what you make of it.' }));
     return;
   }
   const [current, ...earlier] = questions;
   box.replaceChildren(
-    talkNode(current, true),
-    followUps(current),
-    earlier.length ? el('div', { class: 'group-title', text: 'Earlier conversations' }) : null,
-    ...earlier.map((q) => talkNode(q, false)),
+    startFresh ? el('p', { class: 'empty', text: 'Your next message starts a new conversation.' }) : talkNode(current, true),
+    startFresh ? null : followUps(current),
+    (startFresh ? questions : earlier).length ? el('div', { class: 'group-title', text: 'Earlier conversations' }) : null,
+    ...(startFresh ? questions : earlier).map((q) => talkNode(q, false)),
   );
-  if (focusId) box.querySelector(`.talk[data-id="${focusId}"] .talk-reply input`)?.focus();
+  if (toEnd) {
+    const last = box.querySelector('.talk')?.lastElementChild;
+    if (last) last.scrollIntoView({ block: 'nearest' });
+  }
 }
+
+// ---------- composer ----------
+
+function renderQuote() {
+  $('quote-chip').hidden = !pendingQuote;
+  if (pendingQuote) $('quote-text').textContent = `“${pendingQuote.text}”`;
+}
+$('quote-clear').addEventListener('click', () => { pendingQuote = null; renderQuote(); });
+
+function renderComposer() {
+  const fresh = startFresh || !questions.length;
+  $('ask').placeholder = fresh ? 'Ask about the text, a theme or your notes' : 'Reply, or ask something else';
+  $('new-topic').hidden = fresh;
+}
+function growComposer() {
+  const box = $('ask');
+  box.style.height = 'auto';
+  box.style.height = `${Math.min(box.scrollHeight, 180)}px`;
+}
+$('ask').addEventListener('input', growComposer);
+$('ask').addEventListener('keydown', (e) => {
+  // Enter sends; Shift+Enter makes a new line.
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+    e.preventDefault();
+    $('ask-form').requestSubmit();
+  }
+});
+$('ask-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  sendMessage($('ask').value.trim());
+});
+$('new-topic').addEventListener('click', () => {
+  startFresh = true;
+  renderQuestions();
+  renderComposer();
+  $('ask').focus();
+});
 
 // ---------- export ----------
 
@@ -901,8 +839,8 @@ function buildPrint(withText, withMarks) {
       for (const q of answered) {
         qa.append(
           el('div', { class: 'p-item' },
-            el('div', { class: 'p-where', text: `${doc.chapters[q.ch]?.title || ''} · paragraph ${q.p + 1}` }),
-            el('p', {}, [q.where, q.notice].filter(Boolean).join(' '), ' ', el('strong', { text: q.question })),
+            el('div', { class: 'p-where', text: `${doc.chapters[q.ch]?.title || ''}${q.p == null ? '' : ` · paragraph ${q.p + 1}`}` }),
+            q.started === 'student' ? null : el('p', {}, [q.where, q.notice].filter(Boolean).join(' '), ' ', el('strong', { text: q.question })),
             ...q.messages.filter((m) => !m.error).map((m) => el('div', { class: 'p-note', text: `${m.role === 'user' ? 'Me' : 'Companion'}: ${m.text}` })),
           ),
         );
@@ -937,6 +875,6 @@ $('export-form').addEventListener('submit', (e) => {
 
 fetch('/api/health')
   .then((r) => r.json())
-  .then((h) => { $('demo-tag').hidden = h.live; $('demo-tag-q').hidden = h.live; })
+  .then((h) => { $('demo-tag-q').hidden = h.live; })
   .catch(() => {});
 refreshRecent();
