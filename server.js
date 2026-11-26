@@ -74,7 +74,7 @@ const DEMO_TALK = [
   () => 'You have got somewhere with this. How would you put what you now think in one sentence of your own? It is worth adding to your notes.',
 ];
 
-async function chatReply({ doc, position, quote, marks, messages } = {}) {
+async function chatReply({ doc, position, quote, marks, messages, read } = {}) {
   if (!validDoc(doc)) throw new Reply(400, 'No text was sent.');
   if (!Array.isArray(messages) || !messages.length || messages.at(-1).role !== 'user') {
     throw new Reply(400, 'No question was sent.');
@@ -89,7 +89,7 @@ async function chatReply({ doc, position, quote, marks, messages } = {}) {
   }
 
   const focus = [position?.ch ?? 0, ...(quote ? [quote.ch] : []), ...(marks || []).map((m) => m.ch).reverse()];
-  const context = buildStudentContext({ doc, position, quote, marks });
+  const context = buildStudentContext({ doc, position, quote, marks, read: Array.isArray(read) ? read.filter(Number.isInteger) : [] });
   const response = await client.beta.messages.create({
     model: MODEL,
     max_tokens: 3000,

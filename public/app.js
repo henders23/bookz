@@ -67,7 +67,7 @@ let selectedMark = null;
 let kind = null; // 'literature' | 'academic' | 'general', set automatically and changeable
 let visited = []; // chapters the student has opened; questions only draw on these
 let questions = []; // conversations, newest first: { id, started: 'companion' | 'student', ch, p, where, notice, question, lens, messages }
-let qPrefs = { lens: 'mix', level: 'notice', scope: 'chapter' };
+let qPrefs = { lens: 'mix', level: 'interpret', scope: 'chapter' };
 let qBusy = false;
 let barShownAt = 0;
 
@@ -159,7 +159,7 @@ function openDoc(d) {
     questions.push({ id: uid(), started: lead ? 'companion' : 'student', ch: msgs[0].quote?.ch ?? pos.ch, p: msgs[0].quote?.p ?? null, notice: lead ? lead.text : '', question: lead ? '' : t.title || clip(msgs[0].text, 90), messages: msgs });
   }
   startFresh = false;
-  qPrefs = { lens: 'mix', level: 'notice', scope: 'chapter', ...saved.qPrefs };
+  qPrefs = { lens: 'mix', level: 'interpret', scope: 'chapter', ...saved.qPrefs };
   $('q-status').textContent = '';
   if (!kind) classify(d);
   $('doc-title').textContent = d.title;
@@ -662,7 +662,7 @@ async function sendMessage(text) {
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ doc: docPayload(), position: pos, quote, marks: marksPayload(), messages: apiMessages(q) }),
+      body: JSON.stringify({ doc: docPayload(), position: pos, read: visited, quote, marks: marksPayload(), messages: apiMessages(q) }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || 'The companion could not answer. Try again.');
