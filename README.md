@@ -30,8 +30,8 @@ The key stays on the server. The browser only talks to `/api/chat`.
 
 There is one place to talk about the text: the Discuss tab. Its instructions are in [`lib/prompt.js`](lib/prompt.js), in plain English: `QUESTION_INSTRUCTIONS` for an opening and `DISCUSS_INSTRUCTIONS` for every reply.
 
-- Either side can start. The student can ask anything, or press one button and the companion opens: it says where to look ("Read the first paragraph again"), gives a view of its own about that passage, and asks the student to take it further.
-- Each reply answers what the student said, adds one thing of its own, and hands it back. It shares views but does not deliver a complete reading, sum the text up, or write anything for the student to copy.
+- Either side can start. The student can ask anything, or press one button and the companion opens: it says where to look ("Read the first paragraph again"), points at something in the passage that does not quite fit without explaining it, and asks one question that sends the student back to the page.
+- Each reply takes up what the student said and makes one move that sends them back to the text: asking for the line, pointing to one that complicates their view, or bringing in a highlight. Replies are one to three sentences. It narrows the step after a thin answer, and after a few exchanges asks the student to put their view in a sentence of their own. It does not deliver a complete reading or write anything for the student to copy.
 - Openings and replies are told to be specific to the passage (naming its people, claims and examples, with short quotations) and to deal with matters of substance, not single words.
 - The student's highlights and notes are sent with every request. Openings start from them where that gives something real to say.
 - An opening is always about a paragraph the student has already read. References are written as `(ch 3, ¶12)` and the app turns them into links that jump to the passage.
@@ -43,12 +43,25 @@ With each request the server sends the text, the open chapter, the student's hig
 
 On a phone the Discuss and Notes panel is a sheet that slides up over the text and tucks away when the student follows a link to a passage.
 
+## Checking the companion's replies
+
+After changing `lib/prompt.js`, read what Sonnet actually says before trusting it. With the server running and a key set:
+
+```bash
+npm run sample
+```
+
+This runs a fixed set of student messages (a strong answer, a thin one, a misreading, "just tell me", an off-topic message, and a student's own question) against two texts, and prints the openings and replies with automatic flags for length, double questions and bad references. Name a text and a run to do one case, for example `npm run sample -- heat thin`. Set `BOOKZ_URL` to test another server.
+
+The same cases are available on a deployment at `/api/selftest?text=heat&run=thin`. Each request makes a few model calls; set `BOOKZ_SELFTEST=off` to remove the endpoint.
+
 ## What is where
 
 | Path | What it does |
 | --- | --- |
 | `server.js` | Serves the app and calls the Anthropic API |
 | `lib/prompt.js` | The companion's instructions and the context it is given |
+| `lib/selftest.js`, `scripts/sample-replies.js` | Fixed test conversations for reading the companion's real replies |
 | `public/app.js` | Reader, highlights, notes, conversations, export |
 | `public/parse.js` | Reads uploaded EPUB, PDF, Word (.docx) and plain text files |
 | `public/sample/meditations.json` | The sample text |
